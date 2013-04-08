@@ -1,0 +1,45 @@
+/**
+ * SetCorners.h
+ * Klasse fuer das Setzten der Eck-Leds. Da man sich haeufig beim Verkabeln
+ * vertut und dann die Software anpassen muss, sind die Eck-Leds hier ausgelagert.
+ * Dann hat man es bei Software-Updates einfacher.
+ *
+ * @mc       Arduino/RBBB
+ * @autor    Christian Aschoff / caschoff _AT_ mac _DOT_ com
+ * @version  1.1
+ * @created  18.3.2012
+ * @update   18.1.2013
+ *
+ * Versionshistorie:
+ * V 1.1:  - Optimierung hinsichtlich Speicherbedarf.
+ */
+#ifndef SETCORNERS_H
+#define SETCORNERS_H
+
+/**
+ * Setzt die vier Punkte in den Ecken, je nach minutes % 5 (Rest).
+ * Hat man sich in der Verkabelung vertan, muss man die Reihenfolge 
+ * der Zahlen in den eckigen Klammern tauschen (aber es bleibt bei
+ * den Zahlen 0-3, die die Reihe der Matrix angeben, an die man die
+ * Anoden angeloetet hat).
+ */
+void setCorners(byte minutes) {
+  switch (minutes % 5) {
+  case 0:
+    break;
+  case 1:
+    matrix[0] |= 0b0000000000000010;
+    break;
+  case 2:
+    matrix[0] |= 0b0000000000000110;
+    break;
+  case 3:
+    matrix[0] |= 0b0000000000001110;
+    break;
+  case 4:
+    matrix[0] |= 0b0000000000011110;
+    break;
+  }
+}
+
+#endif
