@@ -79,6 +79,11 @@
          Fehler: Obwohl bei der LDR Einstellung "A" oder "M" (Automatisch oder manuell) die Einstellung "A" ausgewaehlt wurde, wird trotzdem die Einstellmoeglichkeit
                  zur Helligkeit (brightness) angezeigt. Es macht aber keinen Sinn bzw. ist fuer den Anwender nicht nachvollziehbar, wenn der Anwender Einstellungen
                  fuer Funktionen vornehmen kann, welche er deaktiviert hat.
+ * V 2.1.4.2: M. Knauer:
+     - [NEW] Umstellung auf LED Treiber WS2803.
+ * V 2.1.4.3: M. Knauer:
+     - [CHANGE] Die beiden Controllerausgaenge zur Ansteuerung der WS2803 Treiber wurden von den analogen Ausgaengen A0 u. A1 auf
+	   die beiden digitalen Ausgaenge D10 und D11 geaendert (per Compilerschalter aenderbar).
  */
 
 #include "prj_settings.h"
@@ -104,7 +109,7 @@ CConfig Config;
 const unsigned char SEND_ORDER_TABLE[] = {
   #include "send_order.h"
 };
-// Knauer, ToDo: if (mode == BLANK)  ---> Anzeige einmal loeschen (geschieht evtl. schon?), dann keine Ausgabe mehr an WS2803 Chips !!!  (oder evtl. nur noch x Mal, falls etwas bei der �bertragung schief geht).
+// Knauer, ToDo: if (mode == BLANK)  ---> Anzeige einmal loeschen (geschieht evtl. schon?), dann keine Ausgabe mehr an WS2803 Chips !!!  (oder evtl. nur noch x Mal, falls etwas bei der Uebertragung schief geht).
 
 
 /*
@@ -113,7 +118,7 @@ const unsigned char SEND_ORDER_TABLE[] = {
 #define CNT_LINES 10
 #define CNT_COLS  11
 #define LED_PWM_MAX 0xFF
-#define LED_CURRENT 0.020 /* 20 mA pro LED bei voller Ansteuerung */
+#define LED_CURRENT 0.020 /* max. 20 mA pro LED (d.h. bei voller Ansteuerung) */
 #define MAX_CURRENT 1.5 /* Maximaler Strom fuer alle LEDs zusammen. Bei Stroemen darueber wird per PWM abgeregelt. */
 
 /**
@@ -145,8 +150,36 @@ DCF77Helper dcf77Helper;
 /*
   LED Driver WS2803 von Worldsemi
 */
-#define WS2803_CKO  A0 /* Clock output */
-#define WS2803_SDO  A1 /* Serial data output */
+//#define WS2803_KNAUER_BELEGUNG
+#define WS2803_ALLGEMEINE_BELEGUNG
+
+#if defined(WS2803_KNAUER_BELEGUNG)
+  #define WS2803_CKO  A0 /* Clock output an A0 */
+  #define WS2803_SDO  A1 /* Serial data output an A1 */
+
+  #define WS2803_CKO_Set_PinMode() /* bei analogem Output nicht einstellbar */
+  #define WS2803_SDO_Set_PinMode() /* bei analogem Output nicht einstellbar */
+
+  #define WS2803_CKO_Write_Low()   analogWrite(WS2803_CKO, 0x00)
+  #define WS2803_CKO_Write_High()  analogWrite(WS2803_CKO, 0xFF)
+
+  #define WS2803_SDO_Write_Low()   analogWrite(WS2803_SDO, 0x00)
+  #define WS2803_SDO_Write_High()  analogWrite(WS2803_SDO, 0xFF)
+
+#elif defined(WS2803_ALLGEMEINE_BELEGUNG)
+  #define WS2803_CKO  10 /* Clock output an D10 */
+  #define WS2803_SDO  11 /* Serial data output an D11 */
+
+  #define WS2803_CKO_Set_PinMode()  pinMode(WS2803_CKO, OUTPUT)
+  #define WS2803_SDO_Set_PinMode()  pinMode(WS2803_SDO, OUTPUT)
+
+  #define WS2803_CKO_Write_Low()   digitalWrite(WS2803_CKO, LOW)
+  #define WS2803_CKO_Write_High()  digitalWrite(WS2803_CKO, HIGH)
+
+  #define WS2803_SDO_Write_Low()   digitalWrite(WS2803_SDO, LOW)
+  #define WS2803_SDO_Write_High()  digitalWrite(WS2803_SDO, HIGH)
+#endif
+
 
 /**
  * Variablen fuer den Alarm.
@@ -395,10 +428,10 @@ void setup() {
 #endif
 
   // Init LED Driver WS2803
-  pinMode(WS2803_CKO, OUTPUT);   // sets the pin as output
-  pinMode(WS2803_SDO, OUTPUT);   // sets the pin as output
-  analogWrite(WS2803_CKO, 0);
-  analogWrite(WS2803_SDO, 0);
+  WS2803_CKO_Set_PinMode();   // sets the pin as output
+  WS2803_SDO_Set_PinMode();   // sets the pin as output
+  WS2803_CKO_Write_Low();
+  WS2803_SDO_Write_Low();
   delayMicroseconds(650); // CKI fuer laenger als 600 us LOW --> Reset
 
   // rtcSQWLed-LED drei Mal als 'Hello' blinken lassen
@@ -876,14 +909,12 @@ void writeScreenBufferToMatrix() {
 	CurrentSum = 0;
 	
 
-	/* Die ersten 16 Byte erstmal leer machen. ToDo: 4 Eck LEDs ansteuern */
+	/* Die ersten 12 Byte erstmal leer machen. */
 	for (buffer_pos = 0; buffer_pos < 12; buffer_pos++) { /* 12 Byte */
 		WS2803_buf[buffer_pos] = 0x00;
-		
-/*		CurrentSum += 0.0; */
 	}
 
-	/* Die ersten 16 Byte erstmal leer machen. ToDo: 4 Eck LEDs ansteuern */
+	/* Die 4 Eck-LEDs fuellen */
 	for (buffer_pos = 0; buffer_pos < 4; buffer_pos++) { /* 4 Byte */
 		PwmVal = (((matrix[0] >> buffer_pos) & 0b0000000000000010) > 0) * LED_PWM_MAX;
 		WS2803_buf[12 + buffer_pos] = PwmVal;
@@ -916,22 +947,22 @@ void writeScreenBufferToMatrix() {
 		output_data = WS2803_buf[buffer_pos] * CurrentPwmFactor;
         for (unsigned char bit = 0x80; bit; bit >>= 1) {
           if (output_data & bit)
-            analogWrite(WS2803_SDO, 0xFF);
+            WS2803_SDO_Write_High();
           else
-            analogWrite(WS2803_SDO, 0);
+            WS2803_SDO_Write_Low();
 
           delayMicroseconds(1);
-          analogWrite(WS2803_CKO, 0xFF); // Clock high
+          WS2803_CKO_Write_High(); // Clock high
           delayMicroseconds(1);
-          analogWrite(WS2803_CKO, 0);   // Clock low
+          WS2803_CKO_Write_Low();  // Clock low
         }
     }
 
 
     // Neues Bild rausgeben
     delayMicroseconds(1);
-    analogWrite(WS2803_CKO, 0);   // Clock low
+    WS2803_CKO_Write_Low(); // Clock low
     delayMicroseconds(1);
-    analogWrite(WS2803_SDO, 0);
+    WS2803_SDO_Write_Low();
     delayMicroseconds(650); // CKI fuer laenger als 600 us LOW --> Reset, Daten uebernehmen
 }
