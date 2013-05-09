@@ -1,3 +1,16 @@
+/* Erklaerung:
+Die Buchstaben (LEDs) der Anzeige werden von links oben bis rechts unten durchnummeriert:
+
+000 001 002 003 004 005 006 007 008 009 010
+011 012 013 014 015 016 017 018 019 020 021
+...
+099 100 101 102 103 104 105 106 107 108 109
+
+
+Abhaengig vom Anschluss der Treiber Ausgaenge an die LEDs wird nachfolgend angegeben,
+in welcher Reihenfolge die Buchstaben an die Treiber gesendet werden muessen.
+*/
+
 9,
 10,
 13,
