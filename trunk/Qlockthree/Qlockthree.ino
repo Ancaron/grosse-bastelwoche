@@ -84,6 +84,14 @@
  * V 2.1.4.3: M. Knauer:
      - [CHANGE] Die beiden Controllerausgaenge zur Ansteuerung der WS2803 Treiber wurden von den analogen Ausgaengen A0 u. A1 auf
 	   die beiden digitalen Ausgaenge D10 und D11 geaendert (per Compilerschalter aenderbar).
+ * V 2.1.4.4: M. Knauer:
+     - [CHANGE] Umstellung der SW auf die Time.h Library. Die Library realisiert eine fortlaufende Uhrzeit inkl. Datum in Sekunden Aufloesung, welche auf der Arduino Plattform autark weiterlaufen kann. Somit kann die Wortuhr auch ohne RTC und ohne DCF Uhr weiterlaufen. Zumindest nach POR sollte die RTC oder DCF Uhr vorhanden sein. Ansonsten muss die Uhr haendisch gestellt werden.
+     - [CHANGE] Verbesserung DCF Empfang: Umsetzung einer Strategie, damit das Beschreiben der WS2803 Treiber nicht immer den DCF Empfang stoert.
+     - [CHANGE] Verschiebung weiterer persoenlicher Uhren-Einstellungen von Qlockthree.ino nach prj_settings.h
+     - [CHANGE] Timings zum Sender der Daten an die WS2803 Treiber verkleinert.
+     - [CHANGE] Verlegung der Sendereihenfolge der Buchstaben (send_order.h) vom RAM ins ROM.
+     - [CHANGE] Berechnung des Ausgabe Inhaltes in eigene Funktion ausgelagert: void CalculateSceenBuffer(tmElements_t TimeOutput_tmElements)
+     - [CHANGE] diverse kleinere Aenderungen
  */
 
 #include "prj_settings.h"
@@ -95,6 +103,7 @@
 #include "Button.h"
 #include "LDR.h"
 #include "DCF77Helper.h"
+#include "Time.h"
 
 #if defined(ENABLE_EEPROM)
 #include <EEPROM.h>
@@ -105,27 +114,22 @@
  */
 CConfig Config;
 
-// Knauer: ToDo: ins ROM verschieben
-const unsigned char SEND_ORDER_TABLE[] = {
+// Tabelle im ROM ablegen
+PROGMEM prog_uchar SEND_ORDER_TABLE[] = {
   #include "send_order.h"
 };
-// Knauer, ToDo: if (mode == BLANK)  ---> Anzeige einmal loeschen (geschieht evtl. schon?), dann keine Ausgabe mehr an WS2803 Chips !!!  (oder evtl. nur noch x Mal, falls etwas bei der Uebertragung schief geht).
 
-
-/*
-  Allgemeine Wortuhr defines
-*/
-#define CNT_LINES 10
-#define CNT_COLS  11
-#define LED_PWM_MAX 0xFF
-#define LED_CURRENT 0.020 /* max. 20 mA pro LED (d.h. bei voller Ansteuerung) */
-#define MAX_CURRENT 1.5 /* Maximaler Strom fuer alle LEDs zusammen. Bei Stroemen darueber wird per PWM abgeregelt. */
 
 /**
  * Die Real-Time-Clock
  */
 DS1307 ds1307(0x68);
-byte helperSeconds;
+static boolean FetchDs1307Time = true;
+static boolean RetryDs1307 = true;
+// Hilfsvariable, da I2C und Interrupts nicht zusammenspielen
+volatile static boolean ds1307Available = false;
+volatile static unsigned long ds1307LastIrqTime_millis = 0;
+
 
 /**
  * Die Funkuhr.
@@ -150,42 +154,24 @@ DCF77Helper dcf77Helper;
 /*
   LED Driver WS2803 von Worldsemi
 */
-//#define WS2803_KNAUER_BELEGUNG
-#define WS2803_ALLGEMEINE_BELEGUNG
+#define WS2803_DELAY       0     /* with a 16 MHz Arduino no delay is needed */
+#define WS2803_RESET_TIME  650   /* perhaps this time can be set to 600 (?) */
 
-#if defined(WS2803_KNAUER_BELEGUNG)
-  #define WS2803_CKO  A0 /* Clock output an A0 */
-  #define WS2803_SDO  A1 /* Serial data output an A1 */
-
-  #define WS2803_CKO_Set_PinMode() /* bei analogem Output nicht einstellbar */
-  #define WS2803_SDO_Set_PinMode() /* bei analogem Output nicht einstellbar */
-
-  #define WS2803_CKO_Write_Low()   analogWrite(WS2803_CKO, 0x00)
-  #define WS2803_CKO_Write_High()  analogWrite(WS2803_CKO, 0xFF)
-
-  #define WS2803_SDO_Write_Low()   analogWrite(WS2803_SDO, 0x00)
-  #define WS2803_SDO_Write_High()  analogWrite(WS2803_SDO, 0xFF)
-
-#elif defined(WS2803_ALLGEMEINE_BELEGUNG)
-  #define WS2803_CKO  10 /* Clock output an D10 */
-  #define WS2803_SDO  11 /* Serial data output an D11 */
-
-  #define WS2803_CKO_Set_PinMode()  pinMode(WS2803_CKO, OUTPUT)
-  #define WS2803_SDO_Set_PinMode()  pinMode(WS2803_SDO, OUTPUT)
-
-  #define WS2803_CKO_Write_Low()   digitalWrite(WS2803_CKO, LOW)
-  #define WS2803_CKO_Write_High()  digitalWrite(WS2803_CKO, HIGH)
-
-  #define WS2803_SDO_Write_Low()   digitalWrite(WS2803_SDO, LOW)
-  #define WS2803_SDO_Write_High()  digitalWrite(WS2803_SDO, HIGH)
-#endif
+#define WS2803_CKO  10 /* Clock output an D10 */
+#define WS2803_SDO  11 /* Serial data output an D11 */
+#define WS2803_CKO_Set_PinMode()  pinMode(WS2803_CKO, OUTPUT)
+#define WS2803_SDO_Set_PinMode()  pinMode(WS2803_SDO, OUTPUT)
+#define WS2803_CKO_Write_Low()   digitalWrite(WS2803_CKO, LOW)
+#define WS2803_CKO_Write_High()  digitalWrite(WS2803_CKO, HIGH)
+#define WS2803_SDO_Write_Low()   digitalWrite(WS2803_SDO, LOW)
+#define WS2803_SDO_Write_High()  digitalWrite(WS2803_SDO, HIGH)
 
 
 /**
  * Variablen fuer den Alarm.
  */
 #ifdef ENABLE_ALARM
-TimeStamp alarmTime(0, 7, 0, 0, 0, 0);
+tmElements_t alarmTime_tmElements = {0, 0, 7, 0, 1, 1, 0}; // Second, Minute, Hour, Wday: day of week, sunday is day 1, Day, Month, Year: offset from 1970
 boolean isBeeping;
 byte showAlarmTimeTimer;
 boolean toneIsOn;
@@ -248,13 +234,13 @@ Button modeChangeButton(7);
  */
 #ifdef ENABLE_ALARM 
 // als Wecker Display nicht abschalten...
-TimeStamp offTime(0, 0, 0, 0, 0, 0);
-TimeStamp onTime(0, 0, 0, 0, 0, 0);
+tmElements_t offTime_tmElements = {0, 0, 0, 0, 1, 1, 0}; // Sekunden werden ignoriert. Second, Minute, Hour, Wday: day of week, sunday is day 1, Day, Month, Year: offset from 1970
+tmElements_t onTime_tmElements  = {0, 0, 0, 0, 1, 1, 0}; // Sekunden werden ignoriert. Second, Minute, Hour, Wday: day of week, sunday is day 1, Day, Month, Year: offset from 1970
 #else
-// um 3 Uhr Display abschalten (Minuten, Stunden, -, -, -, -)
-TimeStamp offTime(0, 3, 0, 0, 0, 0);
-// um 4:30 Uhr Display wieder anschalten (Minuten, Stunden, -, -, -, -)
-TimeStamp onTime(30, 4, 0, 0, 0, 0);
+// um 3 Uhr Display abschalten
+tmElements_t offTime_tmElements = {0, 0, 3, 0, 1, 1, 0}; // Sekunden werden ignoriert. Second, Minute, Hour, Wday: day of week, sunday is day 1, Day, Month, Year: offset from 1970
+// um 4:30 Uhr Display wieder anschalten
+tmElements_t onTime_tmElements  = {0, 30, 4, 0, 1, 1, 0}; // Sekunden werden ignoriert. Second, Minute, Hour, Wday: day of week, sunday is day 1, Day, Month, Year: offset from 1970
 #endif
 
 // Merker fuer den Modus vor der Abschaltung...
@@ -264,11 +250,12 @@ byte lastMode = mode;
 // Arduino analog input 4 = I2C SDA
 // Arduino analog input 5 = I2C SCL
 
+// Wenn auf true gesetzt, erfolgt eine schnellstmoegliche Ausgabe des Bildschirminhaltes.
+// Dies kann ggf. das DCF Empfangssignal stoeren!
+boolean fastDisplayRefresh_bt;
+
 // Die Matrix, eine Art Bildschirmspeicher
 word matrix[CNT_LINES];
-
-// Hilfsvariable, da I2C und Interrupts nicht zusammenspielen
-volatile boolean needsUpdateFromRtc = true;
 
 /**
  * Hier werden die Grafiken fuer die Zahlen der
@@ -393,9 +380,9 @@ void setup() {
   clearScreenBuffer();
 
   // 1 Hz-SQW-Signal einschalten
-  ds1307.readTime();  
+  ds1307.readTime();  // Knauer: ToDo: Wiederholstrategie einbauen, so dass bei erster fehlerhafter ds1307 Initialisierung immer wieder versucht wird, ds1307 zu initialisieren und das 1 Hz Signal einzuschalten
   ds1307.writeTime();
-  helperSeconds = ds1307.getSeconds();
+
 #ifdef DEBUG
   Serial.print(F("Time: "));
   Serial.print(ds1307.getHours());
@@ -456,9 +443,14 @@ void setup() {
 #endif
     delay(100);    
   }
-  
-  /* Konfigurations Modul initialiseren */
+
+  /* Konfigurations Modul initialisieren */
   Config.Init();
+
+	/* Timermodul initialisieren, falls die RTC nicht funktioniert */
+	setSyncProvider(0);  // set function to call when sync required. Here: no function
+	setTime(ds1307.getHours(), ds1307.getMinutes(), ds1307.getSeconds(), ds1307.getDate(), ds1307.getMonth(), ds1307.getYear() /* liefert z.B. 13 fuer 2013*/); /* hours, minutes, seconds, days, months, years (z.B. als 13 fuer 2013) */
+
 
   Serial.println(F("... done and ready to rock!"));
   Serial.flush();
@@ -468,6 +460,14 @@ void setup() {
  * loop() wird endlos auf alle Ewigkeit vom Microcontroller durchlaufen
  */
 void loop() {
+	time_t TimeNowTemp_1970;
+	tmElements_t TimeNowTemp_tmElements; // elements of date and time
+	tmElements_t TimeTemp_tmElements;
+	unsigned int minutes1;
+
+	TimeNowTemp_1970 = now();                            // Zeit fuer diesen loop-Durchlauf sichern
+	breakTime(TimeNowTemp_1970, TimeNowTemp_tmElements); // Zeit fuer diesen loop-Durchlauf sichern
+
   //
   // Dimmung.
   //
@@ -482,114 +482,49 @@ void loop() {
     brightness = GetConfig(cfg_brightness_u8);
 #endif
 
-  //
-  // needsUpdateFromRtc wird via Interrupt gesetzt ueber fallende 
-  // Flanke des SQW-Signals von der RTC
-  //
-  if (needsUpdateFromRtc) {
-    needsUpdateFromRtc = false;
-    // die Zeit verursacht ein kurzes Flackern. Wir muessen
-    // sie aber nicht immer lesen, im Modus 'normal' alle 60 Sekunden,
-    // im Modus 'seconds' alle Sekunde, sonst garnicht.
-    helperSeconds++;
-    if(helperSeconds == 60) {
-      helperSeconds = 0;
-    }
-    
-    //
-    // Zeit einlesen...
-    //
-    switch(mode) {
-      case NORMAL:
-#ifdef ENABLE_ALARM
-      case ALARM:
-        if(isBeeping) {
-          ds1307.readTime();
-        }
-#endif      
-        if(helperSeconds == 0) {
-          ds1307.readTime();
-          helperSeconds = ds1307.getSeconds();
-        }
-        break;
-      case SECONDS:
-      case BLANK:
-        ds1307.readTime();
-        helperSeconds = ds1307.getSeconds();
-        break;
-      // andere Modi egal...
-    }
 
-    //
-    // Bildschirmpuffer beschreiben...
-    //
-    switch (mode) {
-      case NORMAL:
-        clearScreenBuffer();
-        setMinutes(ds1307.getHours(), ds1307.getMinutes());
-        setCorners(ds1307.getMinutes());
-        break;
-#ifdef ENABLE_ALARM
-      case ALARM:
-        clearScreenBuffer();
-        if(showAlarmTimeTimer == 0) {
-          setMinutes(ds1307.getHours(), ds1307.getMinutes());
-          setCorners(ds1307.getMinutes());
-          matrix[4] |= 0b0000000000011111; // Alarm-LED
-        } else {        
-          setMinutes(alarmTime.getHours(), alarmTime.getMinutes());
-          setCorners(alarmTime.getMinutes());
-          cleanWordsForAlarmSettingMode(); // ES IST weg
-          if(showAlarmTimeTimer % 2 == 0) {
-            matrix[4] |= 0b0000000000011111; // Alarm-LED
-          }
-          showAlarmTimeTimer--;
-        }
-      break;
-#endif      
-      case SECONDS:
-        clearScreenBuffer();
-        for (byte i = 0; i < 7; i++) {
-          matrix[1 + i] |= pgm_read_byte_near(&(ziffern[ds1307.getSeconds()/10][i])) << 11;
-          matrix[1 + i] |= pgm_read_byte_near(&(ziffern[ds1307.getSeconds()%10][i])) << 5;
-        }
-        break;
-#if defined(ENABLE_LDR)
-      case LDR_MODE:
-        setCorners(0);
-        clearScreenBuffer(); // Knauer, ToDo: Was genau macht (1 Zeile vorher) setCorners und was clearScreenBuffer? Passt das so (in dieser Reihenfolge)?
-        if (GetConfig(cfg_ldr_auto_bt)) {
-          for (byte i = 0; i < 6; i++) { // ToDo: Zahl 6 nicht hart verwenden, da potenzieller Fehler
-            matrix[2 + i] |= pgm_read_byte_near(&(staben['A'-'A'][i])) << 8;
-          }
-        } else {
-          for (byte i = 0; i < 6; i++) { // ToDo: Zahl 6 nicht hart verwenden, da potenzieller Fehler
-            matrix[2 + i] |= pgm_read_byte_near(&(staben['M'-'A'][i])) << 8;
-          }
-        }
-        break;
+	// Zu jeder 55. Sekunde RTC auslesen.
+	if ((ds1307Available) && ((TimeNowTemp_tmElements.Second+4) % 59) == 0) {
+		if (FetchDs1307Time) {
+			FetchDs1307Time = false;
+
+			ds1307.readTime();
+			setTime(ds1307.getHours(), ds1307.getMinutes(), ds1307.getSeconds(), ds1307.getDate(), ds1307.getMonth(), ds1307.getYear() /* liefert z.B. 13 fuer 2013*/); /* hours, minutes, seconds, days, months, years (z.B. als 13 fuer 2013) */
+		}
+	}
+	else {
+		FetchDs1307Time = true;
+	}
+	
+	// Alle 2 Sekunden ggf. ein Retry fuer ds1307 durchfuehren
+	if ((TimeNowTemp_tmElements.Second % 2) == 0) {
+		if (RetryDs1307) {
+			RetryDs1307 = false;
+		
+			if ((millis() - ds1307LastIrqTime_millis) > 1500) {
+				ds1307Available = false;
+			}
+		
+			if (!ds1307Available) {
+#ifdef willi // ToDo: Checken: Bei neuem Retry Systemzeit in ds1307 schreiben?
+  				ds1307.setSeconds(TimeNowTemp_tmElements.Second);
+				ds1307.setMinutes(TimeNowTemp_tmElements.Minute);
+				ds1307.setHours(TimeNowTemp_tmElements.Hour);
+				ds1307.setDayOfWeek(TimeNowTemp_tmElements.Wday); // Knauer ToDo: Konvertieren?
+				ds1307.setDate(TimeNowTemp_tmElements.Day);
+				ds1307.setMonth(TimeNowTemp_tmElements.Month);
+				ds1307.setYear(tmYearToY2k(TimeNowTemp_tmElements.Year)); // Convert from offset to 1970 to offset to year 2000, example: 43 to 13  (1970+43 = 2013 to 13)
 #endif
-      case SCRAMBLE:
-        scrambleScreenBuffer();
-        break;
-      case BLANK:
-        clearScreenBuffer();
-		writeScreenBufferToMatrix(); // Knauer, ToDo: Wird dies staendig aufgerufen? Dann begrenzen !!!
-        break;
-      case BRIGHTNESS:
-        clearScreenBuffer();
-        brightnessToDisplay = map(brightness, 1, MAX_BRIGHTNESS, 1, 9); // knauer: alt: ... map(brightness, 1, MAX_BRIGHTNESS, 0, 9)
-        for(byte x=0; x<brightnessToDisplay; x++) {
-          for(byte y=0; y<=x; y++) {
-            matrix[9-y] |= 1 << (14-x);
-          }
-        }
-      break;
-      case ALL:
-        setAllScreenBuffer();
-        break;
-      }
-  }
+
+				ds1307.readTime();
+				ds1307.writeTime();
+			}
+		}
+	}
+	else {
+		RetryDs1307 = true;
+	}
+
 
   /*
    *
@@ -602,14 +537,27 @@ void loop() {
     Serial.println(F("\nMinutes plus pressed..."));
     Serial.flush();    
 #endif      
-    needsUpdateFromRtc = true;
     switch(mode) {
       case NORMAL:
-        ds1307.incMinutes();
-        ds1307.setSeconds(0);
+		if (TimeNowTemp_tmElements.Minute < 59)
+			TimeNowTemp_tmElements.Minute++;
+		else
+			TimeNowTemp_tmElements.Minute = 0;
+		TimeNowTemp_tmElements.Second = 0;
+
+		ds1307.setSeconds(TimeNowTemp_tmElements.Second);
+		ds1307.setMinutes(TimeNowTemp_tmElements.Minute);
+		ds1307.setHours(TimeNowTemp_tmElements.Hour);
+		ds1307.setDayOfWeek(TimeNowTemp_tmElements.Wday); // Knauer ToDo: Konvertieren?
+		ds1307.setDate(TimeNowTemp_tmElements.Day);
+		ds1307.setMonth(TimeNowTemp_tmElements.Month);
+		ds1307.setYear(tmYearToY2k(TimeNowTemp_tmElements.Year)); // Convert from offset to 1970 to offset to year 2000, example: 43 to 13  (1970+43 = 2013 to 13)
+
         ds1307.writeTime();
         ds1307.readTime();
-        helperSeconds = 0;  
+        
+        // interne Uhr auf ds1307 Uhr setzen
+        setTime(ds1307.getHours(), ds1307.getMinutes(), ds1307.getSeconds(), ds1307.getDate(), ds1307.getMonth(), ds1307.getYear() /* liefert z.B. 13 fuer 2013*/); /* hours, minutes, seconds, days, months, years (z.B. als 13 fuer 2013) */
 #ifdef DEBUG
         Serial.print(F("M is now "));
         Serial.println(ds1307.getMinutes());
@@ -618,11 +566,13 @@ void loop() {
         break;
 #ifdef ENABLE_ALARM
       case ALARM:
-        alarmTime.incMinutes();
+        alarmTime_tmElements.incMinutes();
         showAlarmTimeTimer = 10;
+		
+		fastDisplayRefresh_bt = true; /* sofortige Ausgabe veranlassen */
 #ifdef DEBUG
         Serial.print(F("A is now "));
-        Serial.println(alarmTime.asString());
+        Serial.println(alarmTime_tmElements.asString());
         Serial.flush();
 #endif      
       break;
@@ -631,11 +581,15 @@ void loop() {
         if(brightness < MAX_BRIGHTNESS) {
           brightness++;
           SetConfig(cfg_brightness_u8, brightness);
+		  
+		  fastDisplayRefresh_bt = true; /* sofortige Ausgabe veranlassen */
         }
       break;
 #if defined(ENABLE_LDR)
       case LDR_MODE:
         SetConfig(cfg_ldr_auto_bt, !GetConfig(cfg_ldr_auto_bt));
+		
+		fastDisplayRefresh_bt = true; /* sofortige Ausgabe veranlassen */
 #ifdef DEBUG
         Serial.print(F("LDR is now "));
         Serial.println(GetConfig(cfg_ldr_auto_bt));
@@ -652,14 +606,27 @@ void loop() {
     Serial.println(F("\nHours plus pressed..."));
     Serial.flush();
 #endif      
-    needsUpdateFromRtc = true;
     switch(mode) {
       case NORMAL:
-        ds1307.incHours();
-        ds1307.setSeconds(0);
+		if (TimeNowTemp_tmElements.Hour < 23)
+			TimeNowTemp_tmElements.Hour++;
+		else
+			TimeNowTemp_tmElements.Hour = 0;
+		TimeNowTemp_tmElements.Second = 0;
+
+		ds1307.setSeconds(TimeNowTemp_tmElements.Second);
+		ds1307.setMinutes(TimeNowTemp_tmElements.Minute);
+		ds1307.setHours(TimeNowTemp_tmElements.Hour);
+		ds1307.setDayOfWeek(TimeNowTemp_tmElements.Wday); // Knauer ToDo: Konvertieren?
+		ds1307.setDate(TimeNowTemp_tmElements.Day);
+		ds1307.setMonth(TimeNowTemp_tmElements.Month);
+		ds1307.setYear(tmYearToY2k(TimeNowTemp_tmElements.Year)); // Convert from offset to 1970 to offset to year 2000, example: 43 to 13  (1970+43 = 2013 to 13)
+
         ds1307.writeTime();
         ds1307.readTime();
-        helperSeconds = 0;
+
+        // interne Uhr auf ds1307 Uhr setzen
+        setTime(ds1307.getHours(), ds1307.getMinutes(), ds1307.getSeconds(), ds1307.getDate(), ds1307.getMonth(), ds1307.getYear() /* liefert z.B. 13 fuer 2013*/); /* hours, minutes, seconds, days, months, years (z.B. als 13 fuer 2013) */
 #ifdef DEBUG
         Serial.print(F("H is now "));
         Serial.println(ds1307.getHours());
@@ -668,11 +635,13 @@ void loop() {
       break;
 #ifdef ENABLE_ALARM
       case ALARM:
-        alarmTime.incHours();
+        alarmTime_tmElements.incHours();
         showAlarmTimeTimer = 10;
+		
+		fastDisplayRefresh_bt = true; /* sofortige Ausgabe veranlassen */
 #ifdef DEBUG
         Serial.print(F("A is now "));
-        Serial.println(alarmTime.asString());
+        Serial.println(alarmTime_tmElements.asString());
         Serial.flush();
 #endif      
       break;
@@ -681,11 +650,15 @@ void loop() {
         if(brightness > 2) {
           brightness--;
           SetConfig(cfg_brightness_u8, brightness);
+		  
+		  fastDisplayRefresh_bt = true; /* sofortige Ausgabe veranlassen */
         }
         break;
 #if defined(ENABLE_LDR)
       case LDR_MODE:
         SetConfig(cfg_ldr_auto_bt, !GetConfig(cfg_ldr_auto_bt));
+		
+		fastDisplayRefresh_bt = true; /* sofortige Ausgabe veranlassen */
 #ifdef DEBUG
         Serial.print(F("LDR is now "));
         Serial.println(GetConfig(cfg_ldr_auto_bt));
@@ -716,7 +689,6 @@ void loop() {
     if(mode == MAX) {
       mode = 0;
     }
-    needsUpdateFromRtc = true;
 
 #ifdef ENABLE_ALARM
     if(mode == ALARM) {
@@ -751,11 +723,13 @@ void loop() {
    * Display zeitgesteuert abschalten?
    *
    */
-  if((offTime.getMinutesOfDay() != 0) && (onTime.getMinutesOfDay() != 0)) {
-    if((mode != BLANK) && (offTime.getMinutesOfDay() == ds1307.getMinutesOfDay())) {
+  if((makeTime(offTime_tmElements) != 0) && (makeTime(onTime_tmElements) != 0)) {
+	minutes1 = TimeNowTemp_tmElements.Minute + 60 * TimeNowTemp_tmElements.Hour;
+
+    if((mode != BLANK) && ((offTime_tmElements.Minute + 60 * offTime_tmElements.Hour) == minutes1)) { // nur auf Minuten seit Mitternacht ueberpruefen
       mode = BLANK;
     }
-    if((mode == BLANK) && (onTime.getMinutesOfDay() == ds1307.getMinutesOfDay())) {
+    if((mode == BLANK) && ((onTime_tmElements.Minute + 60 * onTime_tmElements.Hour) == minutes1)) { // nur auf Minuten seit Mitternacht ueberpruefen
       mode = lastMode;
     }
   }
@@ -767,12 +741,12 @@ void loop() {
    *
    */
   if((mode == ALARM) && (showAlarmTimeTimer == 0) && !isBeeping) {
-    if(alarmTime.getMinutesOf12HoursDay() == ds1307.getMinutesOf12HoursDay()) {
+    if(alarmTime_tmElements.getMinutesOf12HoursDay() == ds1307.getMinutesOf12HoursDay()) { // Knauer ToDo: ds1307 entfernen, sondern stattdessen auf die interne Uhr schauen. Ausserdem auf 24 Stunden Format umstellen!
       isBeeping = true;
     }
   }
   if(isBeeping) {
-    if(ds1307.getSeconds() % 2 == 0) {
+    if(TimeNowTemp_tmElements.Second % 2 == 0) {
 #ifdef SPEAKER_IS_BUZZER
       digitalWrite(SPEAKER, HIGH);
 #else
@@ -792,12 +766,126 @@ void loop() {
 
   /*
    *
-   * Die Matrix auf die LEDs multiplexen
+   * Die Matrix auf die LEDs ausgeben
    *
    */
-  if(mode != BLANK) {
-    writeScreenBufferToMatrix();
-  }
+	/* Da eine Bildausgabe den DCF Empfang stoert:
+	   Jede Sekunde das Bild neu ausgeben. Nach 61 s die Ausgabe zusaetzlich um 100 ms nach hinten verschieben.
+	   Durch den 100 ms Offest ist sichergestellt, dass die Uebertragung zur Bildausgabe im unguenstigsten Fall nicht
+	   immer den DCF Empfang stoert. DCF Signale kommen jede Sekunde und dauern jeweils maximal 200 ms. Eine
+	   komplette Bildausgabe per serieller Schnittstelle dauert ca. 25 ms.
+	*/
+	static unsigned long time_next_output_millis;
+	static int time_seconds; /* Zaehlt die Sekunden, um alle 61 Sekunden den Ausgabe-Offest um 100 ms zu verschieben. Laeuft asysnchron zu den realen Sekunden. */
+	static boolean running_up = true;
+	static time_t TimeLastOutput_1970 = 0;
+	
+	unsigned long time_now_millis;
+
+	time_now_millis = millis();
+
+	/* Wenn ein sofortiger Refresh angefordert wird oder die naechste Ausgabe um mehr als 1500 ms von
+	   der aktuellen Uhrzeit abweicht, dann Variablen so initialisieren, dass das Bild sofort ausgegeben
+	   wird. Eine Abweichung um mehr als 1500 ms tritt z.B. auf, wenn die Zeit millis() einen Ueberlauf
+	   hatte.
+	*/
+
+	if (
+		(fastDisplayRefresh_bt) ||
+		( (TimeLastOutput_1970 <  TimeNowTemp_1970) && ((TimeNowTemp_1970 - TimeLastOutput_1970) >= 3) ) ||
+		( (TimeLastOutput_1970 >= TimeNowTemp_1970) && ((TimeLastOutput_1970 - TimeNowTemp_1970) >= 1) )
+	) {
+		// (Re-)Init
+Serial.print("(Re-)Init Ausgabe Timing");
+Serial.println("");
+Serial.flush();
+		fastDisplayRefresh_bt = false;
+		time_seconds = 0;
+		time_next_output_millis = time_now_millis;
+
+		TimeLastOutput_1970 = TimeNowTemp_1970 - 1;
+		running_up = true;
+	}
+
+
+
+	if ((TimeNowTemp_1970 - TimeLastOutput_1970) >= 2) {
+		/* Abstand ist groesser als 1 Sekunde, deshalb nun runterzaehlen */;
+		running_up = false;
+	}
+	if ((TimeNowTemp_1970 - TimeLastOutput_1970) <= 0) {
+		/* Abstand ist kleiner als 1 Sekunde, deshalb nun hochzaehlen */;
+		running_up = true;
+	}
+
+
+	/* Nach Ablauf der Zielzeit das Bild neu ausgeben und die naechste Zielzeit berechnen. */
+	if (time_now_millis >= time_next_output_millis) {
+		TimeLastOutput_1970++;
+		breakTime(TimeLastOutput_1970, TimeTemp_tmElements);  // break time_t into elements
+
+		// ScreenBuffer berechnen
+		CalculateSceenBuffer(TimeTemp_tmElements);
+		
+		// ScreenBuffer ausgeben
+Serial.print("Arduino (millis): ");
+Serial.println(time_now_millis);
+
+Serial.print("Anzeige: ");
+Serial.print(TimeTemp_tmElements.Hour);
+Serial.print(":");
+Serial.print(TimeTemp_tmElements.Minute);
+Serial.print(":");
+Serial.print(TimeTemp_tmElements.Second);
+Serial.print(" ");
+Serial.print(TimeTemp_tmElements.Day);
+Serial.print(".");
+Serial.print(TimeTemp_tmElements.Month);
+Serial.print(".");
+Serial.println(TimeTemp_tmElements.Year);
+
+Serial.print("RTC (ds1307) Zeit: ");
+Serial.print(ds1307.getHours());
+Serial.print(":");
+Serial.print(ds1307.getMinutes());
+Serial.print(":");
+Serial.print(ds1307.getSeconds());
+Serial.print(" ");
+Serial.print(ds1307.getDate());
+Serial.print(".");
+Serial.print(ds1307.getMonth());
+Serial.print(".");
+Serial.println(ds1307.getYear());
+
+Serial.print("DCF77 Zeit: ");
+Serial.print(dcf77.getHours());
+Serial.print(":");
+Serial.print(dcf77.getMinutes());
+Serial.print(":");
+Serial.print("??");
+Serial.print(" ");
+Serial.print(dcf77.getDate());
+Serial.print(".");
+Serial.print(dcf77.getMonth());
+Serial.print(".");
+Serial.println(dcf77.getYear());
+
+Serial.println("");
+Serial.flush();
+		writeScreenBufferToMatrix();
+
+		time_next_output_millis += 1000; /* naechste Ausgabe nach 1 s */
+		time_seconds++;
+		
+		// alle 61 s Offest um 100 ms veraendern
+		if (time_seconds > 60) {
+			time_seconds = 0;
+			if (running_up)
+				time_next_output_millis += 100; /* 1 Minute ist rum, deshalb um 100 ms verschieben. */
+			else
+				time_next_output_millis -= 100; /* 1 Minute ist rum, deshalb um 100 ms verschieben. */
+		}
+	}
 
   /*
    *
@@ -823,8 +911,14 @@ void loop() {
     Serial.flush();
 #endif
   
-    ds1307.readTime();
-    dcf77Helper.addSample(dcf77, ds1307);
+	TimeTemp_tmElements.Second = 0;
+	TimeTemp_tmElements.Minute = dcf77.getMinutes();
+	TimeTemp_tmElements.Hour = dcf77.getHours();
+	TimeTemp_tmElements.Day = dcf77.getDate();
+	TimeTemp_tmElements.Month = dcf77.getMonth();
+	TimeTemp_tmElements.Year = y2kYearToTm(dcf77.getYear()); // convert offset from 2000 to offset from 1970
+	
+    dcf77Helper.addSample(makeTime(TimeTemp_tmElements), now());
     // stimmen die Abstaende im Array?
     if(dcf77Helper.samplesOk()) {
       ds1307.setSeconds(0);
@@ -836,7 +930,9 @@ void loop() {
       ds1307.setDate(dcf77.getDate());
       ds1307.setDayOfWeek(dcf77.getDayOfWeek());
       ds1307.setMonth(dcf77.getMonth());
-      ds1307.setYear(dcf77.getYear());
+      ds1307.setYear(dcf77.getYear()); // ds1307 und dcf77 nutzen z.B. 13 fuer 2013
+
+	  setTime(ds1307.getHours(), ds1307.getMinutes(), ds1307.getSeconds(), ds1307.getDate(), ds1307.getMonth(), ds1307.getYear() /* liefert z.B. 13 fuer 2013*/); /* hours, minutes, seconds, days, months, years (z.B. als 13 fuer 2013) */
 
       ds1307.writeTime();
 #ifdef DEBUG
@@ -862,7 +958,8 @@ void loop() {
  * dann in loop() ausgewertet wird.
  */
 void updateFromRtc() {
-  needsUpdateFromRtc = true;
+  ds1307Available = true;
+  ds1307LastIrqTime_millis = millis();
 }
 
 /**
@@ -889,6 +986,78 @@ void setAllScreenBuffer() {
   memset(matrix, 0xFF, sizeof(matrix));
 }
 
+
+void CalculateSceenBuffer(tmElements_t TimeOutput_tmElements) {
+    //
+    // Bildschirmpuffer beschreiben...
+    //
+    switch (mode) {
+      case NORMAL:
+        clearScreenBuffer();
+        setMinutes(TimeOutput_tmElements.Hour, TimeOutput_tmElements.Minute); // Schreibe in den Bildschirmbuffer die Uhrzeit
+        setCorners(TimeOutput_tmElements.Minute);                   // Schreibe in den Bildschirmbuffer die Minuten
+        break;
+#ifdef ENABLE_ALARM
+      case ALARM:
+        clearScreenBuffer();
+        if(showAlarmTimeTimer == 0) {
+			setMinutes(TimeOutput_tmElements.Hour, TimeOutput_tmElements.Minute); // Schreibe in den Bildschirmbuffer die Uhrzeit
+			setCorners(TimeOutput_tmElements.Minute);                   // Schreibe in den Bildschirmbuffer die Minuten
+			matrix[4] |= 0b0000000000011111; // Alarm-LED
+        } else {        
+          setMinutes(alarmTime_tmElements.getHours(), alarmTime_tmElements.getMinutes());
+          setCorners(alarmTime_tmElements.getMinutes());
+          cleanWordsForAlarmSettingMode(); // ES IST weg
+          if(showAlarmTimeTimer % 2 == 0) {
+            matrix[4] |= 0b0000000000011111; // Alarm-LED
+          }
+          showAlarmTimeTimer--;
+        }
+      break;
+#endif      
+      case SECONDS:
+        clearScreenBuffer();
+        for (byte i = 0; i < 7; i++) {
+          matrix[1 + i] |= pgm_read_byte_near(&(ziffern[TimeOutput_tmElements.Second / 10][i])) << 11;
+          matrix[1 + i] |= pgm_read_byte_near(&(ziffern[TimeOutput_tmElements.Second % 10][i])) << 5;
+        }
+        break;
+#if defined(ENABLE_LDR)
+      case LDR_MODE:
+        clearScreenBuffer();
+        if (GetConfig(cfg_ldr_auto_bt)) {
+          for (byte i = 0; i < 6; i++) { // ToDo: Zahl 6 nicht hart verwenden, da potenzieller Fehler
+            matrix[2 + i] |= pgm_read_byte_near(&(staben['A'-'A'][i])) << 8;
+          }
+        } else {
+          for (byte i = 0; i < 6; i++) { // ToDo: Zahl 6 nicht hart verwenden, da potenzieller Fehler
+            matrix[2 + i] |= pgm_read_byte_near(&(staben['M'-'A'][i])) << 8;
+          }
+        }
+        break;
+#endif
+      case SCRAMBLE:
+        scrambleScreenBuffer();
+        break;
+      case BLANK:
+        clearScreenBuffer();
+        break;
+      case BRIGHTNESS:
+        clearScreenBuffer();
+        brightnessToDisplay = map(brightness, 1, MAX_BRIGHTNESS, 1, 9); // knauer: alt: ... map(brightness, 1, MAX_BRIGHTNESS, 0, 9)
+        for(byte x=0; x<brightnessToDisplay; x++) {
+          for(byte y=0; y<=x; y++) {
+            matrix[9-y] |= 1 << (14-x);
+          }
+        }
+      break;
+      case ALL:
+        setAllScreenBuffer();
+        break;
+    }
+}
+
+
 /**
  * Die Matrix ausgeben
  */
@@ -903,28 +1072,34 @@ void writeScreenBufferToMatrix() {
 	unsigned char output_data;
 
 	float CurrentSum;
+	float CurrentSum_TEMP;
 	float CurrentPwmFactor;
+	
+	int AnalogLdrVal;
+	#define PWM_LDR_STEIGUNGS_FAKTOR  ((LED_PWM_MAX - LDR_MIN_PWM) / (1023.0 - LDR_BRIGHTNESS_VAL_MIN))
 
 
 	CurrentSum = 0;
-	
 
-	/* Die ersten 12 Byte erstmal leer machen. */
+	/* WS2803_buf[0..11] fuellen: Ausgaenge sind nicht angeschlossen, also Ausgaenge ausschalten. */
 	for (buffer_pos = 0; buffer_pos < 12; buffer_pos++) { /* 12 Byte */
 		WS2803_buf[buffer_pos] = 0x00;
 	}
 
-	/* Die 4 Eck-LEDs fuellen */
+	/* WS2803_buf[12..15] fuellen: 4 Eck-LEDs */
 	for (buffer_pos = 0; buffer_pos < 4; buffer_pos++) { /* 4 Byte */
 		PwmVal = (((matrix[0] >> buffer_pos) & 0b0000000000000010) > 0) * LED_PWM_MAX;
 		WS2803_buf[12 + buffer_pos] = PwmVal;
 		
 		CurrentSum += ( ((float)PwmVal) * (LED_CURRENT / 255.0) );
+		/* 255.0 gibt den maximal einstellbaren Wert ein. 255.0 entspricht 100% an.
+		   LED_PWM_MAX hingegen begrenzt den maximal gewuenschten Einstellwert. LED_PWM_MAX muss <= 255.0 sein.
+		*/
 	}
 
-	/* Fuer alle Buchstaben: WS2803_buf[16..125] fuellen und CurrentSum berechnen */
+	/* WS2803_buf[16..125] fuellen: Alle Buchstaben LEDs fuellen */
 	for (buffer_pos = 0; buffer_pos < CNT_LINES * CNT_COLS; buffer_pos++) { /* 10*11 = 110 Byte */
-		matrix_pos = SEND_ORDER_TABLE[buffer_pos];
+		matrix_pos = pgm_read_byte_near(&SEND_ORDER_TABLE[buffer_pos]);
 		zeile = (matrix_pos / CNT_COLS);
 		spalte = matrix_pos % 11;
 		
@@ -932,14 +1107,25 @@ void writeScreenBufferToMatrix() {
 		WS2803_buf[16 + buffer_pos] = PwmVal;
 
 		CurrentSum += ( ((float)PwmVal) * (LED_CURRENT / 255.0) );
+		/* 255.0 gibt den maximal einstellbaren Wert an. 255.0 entspricht 100% an.
+		   LED_PWM_MAX hingegen begrenzt den maximal gewuenschten Einstellwert. LED_PWM_MAX muss <= 255.0 sein.
+		*/
 	}
 
-	/* Faktor berechnen, um ggf. den Strom per PWM zu begrenzen. */
-	if (CurrentSum > MAX_CURRENT) {
-		CurrentPwmFactor = MAX_CURRENT / CurrentSum;
+
+	/* LDR Wert verarbeiten */
+	AnalogLdrVal = ldr.value(); /* ldr.value() zwischenspeichern, da bei jedem Aufruf unterschiedliche Werte zurueckkommen koennen. */
+	if (AnalogLdrVal > LDR_BRIGHTNESS_VAL_MIN) {
+		CurrentPwmFactor = (LED_PWM_MAX - ((AnalogLdrVal - LDR_BRIGHTNESS_VAL_MIN) * PWM_LDR_STEIGUNGS_FAKTOR)) / LED_PWM_MAX;
 	}
 	else {
 		CurrentPwmFactor = 1.0;
+	}
+
+	/* Faktor berechnen, um ggf. den Strom per PWM zu begrenzen. */
+	CurrentSum_TEMP = CurrentSum*CurrentPwmFactor;
+	if (CurrentSum_TEMP > MAX_CURRENT) {
+		CurrentPwmFactor = MAX_CURRENT / CurrentSum_TEMP;
 	}
 
     for (buffer_pos = 0; buffer_pos < sizeof(WS2803_buf); buffer_pos++) {
@@ -951,18 +1137,26 @@ void writeScreenBufferToMatrix() {
           else
             WS2803_SDO_Write_Low();
 
-          delayMicroseconds(1);
+#if WS2803_DELAY != 0
+          delayMicroseconds(WS2803_DELAY);
+#endif
           WS2803_CKO_Write_High(); // Clock high
-          delayMicroseconds(1);
+#if WS2803_DELAY != 0
+          delayMicroseconds(WS2803_DELAY);
+#endif
           WS2803_CKO_Write_Low();  // Clock low
         }
     }
 
 
-    // Neues Bild rausgeben
-    delayMicroseconds(1);
+    // Neues Bild ausgeben
+#if WS2803_DELAY != 0
+    delayMicroseconds(WS2803_DELAY);
+#endif
     WS2803_CKO_Write_Low(); // Clock low
-    delayMicroseconds(1);
+#if WS2803_DELAY != 0
+    delayMicroseconds(WS2803_DELAY);
+#endif
     WS2803_SDO_Write_Low();
-    delayMicroseconds(650); // CKI fuer laenger als 600 us LOW --> Reset, Daten uebernehmen
+    delayMicroseconds(WS2803_RESET_TIME); // CKI fuer laenger als 600 us LOW --> Reset, Daten uebernehmen
 }
