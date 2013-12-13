@@ -10,7 +10,11 @@
  *
  * Versionshistorie:
  * V 1.1:  - Projekteinstellung aus "Qlockthree.ino" in diesen header ausgelagert.
-  */
+ * V 1.2:
+     - [CHANGE] Verschiebung weiterer persoenlicher Uhren-Einstellungen von Qlockthree.ino nach prj_settings.h
+ * V 1.3:
+     - Nachtrag der Aenderungshistory
+ */
 #ifndef PRJ_SETTINGS_H
 #define PRJ_SETTINGS_H
 
