@@ -64,16 +64,7 @@
  * der Umgebungshelligkeit abhaengige Helligkeit.
  * Default: eingeschaltet
  */
-// Knauer: ausgeschaltet
-//  #define ENABLE_LDR
-
-/*
- * Dieser Schalter erhoeht die Helligkeit, indem er nicht beleuchtete Zeilen ueberspringt. (Tipp
- * von Johannes)
- * Default: ausgeschaltet
- */
-// Knauer: eingeschaltet
-#define SKIP_BLANK_LINES
+#define ENABLE_LDR
 
 /*
  * Angabe, ob zur Speicherung von Einstellungen oder Daten das Eeprom verwendet wird. Da hoffentlich
@@ -81,6 +72,24 @@
  * Default: eingeschaltet, d.h. das EEPROM wird verwendet.
  */
 #define ENABLE_EEPROM
+
+/*
+  Strombegrenzung der LEDs per PWM
+*/
+#define LED_CURRENT 0.020 /* max. 20 mA pro LED (d.h. bei voller Ansteuerung) */
+#define MAX_CURRENT 1.0   /* Maximaler Strom fuer alle LEDs zusammen. Bei Stroemen darueber wird per PWM abgeregelt. */
+
+/* Angaben fuer die automatische Lichthelligkeit per LDR */
+/* ToDo: Ausfuehrliche Erklaerung */
+#define LDR_BRIGHTNESS_VAL_MIN  500   /* [0..1023] */
+#define LDR_MIN_PWM             80.0  /* [0..255] bzw. [0..LED_PWM_MAX] */
+
+/*
+  Allgemeine Wortuhr defines
+*/
+#define CNT_LINES 10
+#define CNT_COLS  11
+#define LED_PWM_MAX 255
 
 
 #endif
