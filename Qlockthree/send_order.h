@@ -1,4 +1,5 @@
 /* Erklaerung:
+Sicht von hinten auf die LEDs (d.h. die gedachten Buchstaben sieht man spiegelverkehrt).
 Die Buchstaben (LEDs) der Anzeige werden von links oben bis rechts unten durchnummeriert:
 
 000 001 002 003 004 005 006 007 008 009 010
@@ -11,17 +12,6 @@ Abhaengig vom Anschluss der Treiber Ausgaenge an die LEDs wird nachfolgend angeg
 in welcher Reihenfolge die Buchstaben an die Treiber gesendet werden muessen.
 */
 
-9,
-10,
-13,
-14,
-15,
-16,
-17,
-18,
-19,
-20,
-21,
 0,
 1,
 2,
@@ -31,29 +21,41 @@ in welcher Reihenfolge die Buchstaben an die Treiber gesendet werden muessen.
 6,
 7,
 8,
-
-43, //
-42, //
-41, //
-40, //
-39, //
-
+9,
+10,
+11,
+12,
+13,
+14,
+15,
+16,
+17,
+18,
+19,
+20,
+21,
 22,
 23,
 24,
 25,
-27, //
-26, //
-
-32, //
-31, //
-30, //
-29, //
-28, //
-
-11,
-12,
-65,
+26,
+27,
+28,
+29,
+30,
+31,
+32,
+33,
+34,
+35,
+36,
+37,
+38,
+39,
+40,
+41,
+42,
+43,
 44,
 45,
 46,
@@ -65,20 +67,6 @@ in welcher Reihenfolge die Buchstaben an die Treiber gesendet werden muessen.
 52,
 53,
 54,
-33,
-34,
-35,
-36,
-37,
-38,
-69,
-70,
-71,
-72,
-73,
-74,
-75,
-76,
 55,
 56,
 57,
@@ -89,10 +77,18 @@ in welcher Reihenfolge die Buchstaben an die Treiber gesendet werden muessen.
 62,
 63,
 64,
-95,
-96,
-97,
-98,
+65,
+66,
+67,
+68,
+69,
+70,
+71,
+72,
+73,
+74,
+75,
+76,
 77,
 78,
 79,
@@ -104,9 +100,17 @@ in welcher Reihenfolge die Buchstaben an die Treiber gesendet werden muessen.
 85,
 86,
 87,
-66,
-67,
-68,
+88,
+89,
+90,
+91,
+92,
+93,
+94,
+95,
+96,
+97,
+98,
 99,
 100,
 101,
@@ -117,11 +121,5 @@ in welcher Reihenfolge die Buchstaben an die Treiber gesendet werden muessen.
 106,
 107,
 108,
-109,
-88,
-89,
-90,
-91,
-92,
-93,
-94
+109
+
