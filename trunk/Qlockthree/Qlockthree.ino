@@ -92,7 +92,10 @@
      - [CHANGE] Verlegung der Sendereihenfolge der Buchstaben (send_order.h) vom RAM ins ROM.
      - [CHANGE] Berechnung des Ausgabe Inhaltes in eigene Funktion ausgelagert: void CalculateSceenBuffer(tmElements_t TimeOutput_tmElements)
      - [CHANGE] diverse kleinere Aenderungen
- */
+ * V 2.1.4.5: M. Knauer:
+     - [CHANGE] Zu Programmstart werden seriell Infos wie Version, Stroeme usw. ausgegeben.
+     - [CHANGE] Serielle Debug Infos entfernt
+*/
 
 #include "prj_settings.h"
 #include <Wire.h> // Wire library fuer I2C
@@ -108,6 +111,13 @@
 #if defined(ENABLE_EEPROM)
 #include <EEPROM.h>
 #endif
+
+
+/**
+ * SW Version
+ */
+#define SW_VERSION_STR  "Wortuhr WS2803 0.1+ (17.12.2013)"
+
 
 /**
  * Konfiguration, die z.B. auch im Eeprom gespeichert wird.
@@ -328,7 +338,20 @@ word matrix[CNT_LINES];
 void setup() {
   Serial.begin(SERIAL_SPEED);
   Serial.println(F("Qlockthree is initializing..."));
+
+  Serial.println(F(SW_VERSION_STR));
+  
+  Serial.print(F("Send order version: "));
+  Serial.println(F(SEND_ORDER_VERSION_STR));
+
+  Serial.print(F("Current limitation all LEDs: "));
+  Serial.print(MAX_CURRENT, 4);
+  Serial.println(F(" A"));
+  
+  Serial.print(F("Current limitation one LED: "));
+  Serial.println(LED_CURRENT, 4);
 #ifdef DEBUG
+  Serial.println();
   Serial.println(F("... and starting in debug-mode..."));
 #endif
   Serial.flush();
@@ -796,9 +819,6 @@ void loop() {
 		( (TimeLastOutput_1970 >= TimeNowTemp_1970) && ((TimeLastOutput_1970 - TimeNowTemp_1970) >= 1) )
 	) {
 		// (Re-)Init
-Serial.print("(Re-)Init Ausgabe Timing");
-Serial.println("");
-Serial.flush();
 		fastDisplayRefresh_bt = false;
 		time_seconds = 0;
 		time_next_output_millis = time_now_millis;
@@ -828,50 +848,6 @@ Serial.flush();
 		CalculateSceenBuffer(TimeTemp_tmElements);
 		
 		// ScreenBuffer ausgeben
-Serial.print("Arduino (millis): ");
-Serial.println(time_now_millis);
-
-Serial.print("Anzeige: ");
-Serial.print(TimeTemp_tmElements.Hour);
-Serial.print(":");
-Serial.print(TimeTemp_tmElements.Minute);
-Serial.print(":");
-Serial.print(TimeTemp_tmElements.Second);
-Serial.print(" ");
-Serial.print(TimeTemp_tmElements.Day);
-Serial.print(".");
-Serial.print(TimeTemp_tmElements.Month);
-Serial.print(".");
-Serial.println(TimeTemp_tmElements.Year);
-
-Serial.print("RTC (ds1307) Zeit: ");
-Serial.print(ds1307.getHours());
-Serial.print(":");
-Serial.print(ds1307.getMinutes());
-Serial.print(":");
-Serial.print(ds1307.getSeconds());
-Serial.print(" ");
-Serial.print(ds1307.getDate());
-Serial.print(".");
-Serial.print(ds1307.getMonth());
-Serial.print(".");
-Serial.println(ds1307.getYear());
-
-Serial.print("DCF77 Zeit: ");
-Serial.print(dcf77.getHours());
-Serial.print(":");
-Serial.print(dcf77.getMinutes());
-Serial.print(":");
-Serial.print("??");
-Serial.print(" ");
-Serial.print(dcf77.getDate());
-Serial.print(".");
-Serial.print(dcf77.getMonth());
-Serial.print(".");
-Serial.println(dcf77.getYear());
-
-Serial.println("");
-Serial.flush();
 		writeScreenBufferToMatrix();
 
 		time_next_output_millis += 1000; /* naechste Ausgabe nach 1 s */
