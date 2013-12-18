@@ -12,6 +12,8 @@ Abhaengig vom Anschluss der Treiber Ausgaenge an die LEDs wird nachfolgend angeg
 in welcher Reihenfolge die Buchstaben an die Treiber gesendet werden muessen.
 */
 
+#define SEND_ORDER_VERSION_STR  "kleine Wortuhr, LEDs in idealer Reihenfolge angeschlossen"
+
 0,
 1,
 2,
