@@ -1,5 +1,5 @@
 /* Erklaerung:
-Sicht von hinten auf die LEDs (d.h. die gedachten Buchstaben sieht man spiegelverkehrt).
+Ansicht von vorne, d.h. die Buchstaben sind richtig herum lesbar.
 Die Buchstaben (LEDs) der Anzeige werden von links oben bis rechts unten durchnummeriert:
 
 000 001 002 003 004 005 006 007 008 009 010
