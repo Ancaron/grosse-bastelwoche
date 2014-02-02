@@ -14,6 +14,9 @@
      - [CHANGE] Verschiebung weiterer persoenlicher Uhren-Einstellungen von Qlockthree.ino nach prj_settings.h
  * V 1.3:
      - Nachtrag der Aenderungshistory
+ * V 1.4:
+     - [CHANGE] Erweiterung, so dass eine kleine Wortuhr (10*11+4=114 LEDs) und eine grosse Wortuhr (14*16+4=228 LEDs) moeglich ist.
+     - [CHANGE] Defaultwert fuer maximalen LED Strom aller LEDs zusammen von 1.0 auf 0.8 geaendert. Ein z.B. 1 A Stromnetzteil muss auch noch den Rest der Elektronik (Arduino Board usw.) versorgen.
  */
 #ifndef PRJ_SETTINGS_H
 #define PRJ_SETTINGS_H
@@ -27,6 +30,13 @@
 // #define DEBUG
 // Die Geschwindigkeit der seriellen Schnittstelle. Default: 57600
    #define SERIAL_SPEED 57600
+
+/*
+ * Welche Wortuhr, 10*11 LEDs oder 14*16 LEDs? Es muss genau eines der defines gesetzt sein.
+ */
+#define WORTUHR_GROESSE_KLEIN   /* 10*11 + 4 = 114 LEDs */
+//#define WORTUHR_GROESSE_GROSS   /* 14*16 + 4 = 228 LEDs */
+
 
 /*
  * Welche Sprache wird gewuenscht?
@@ -81,7 +91,7 @@
   Strombegrenzung der LEDs per PWM
 */
 #define LED_CURRENT 0.020 /* max. 20 mA pro LED (d.h. bei voller Ansteuerung) */
-#define MAX_CURRENT 1.0   /* Maximaler Strom fuer alle LEDs zusammen. Bei Stroemen darueber wird per PWM abgeregelt. */
+#define MAX_CURRENT 0.8   /* Maximaler Strom fuer alle LEDs zusammen. Bei Stroemen darueber wird per PWM abgeregelt. */
 
 /* Angaben fuer die automatische Lichthelligkeit per LDR */
 /* ToDo: Ausfuehrliche Erklaerung */
@@ -91,8 +101,14 @@
 /*
   Allgemeine Wortuhr defines
 */
-#define CNT_LINES 10
-#define CNT_COLS  11
+#if defined(WORTUHR_GROESSE_KLEIN)
+	#define CNT_LINES 10
+	#define CNT_COLS  11
+#endif
+#if defined(WORTUHR_GROESSE_GROSS)
+	#define CNT_LINES 14
+	#define CNT_COLS  16
+#endif
 #define LED_PWM_MAX 255
 
 
