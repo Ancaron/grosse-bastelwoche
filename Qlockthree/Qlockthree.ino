@@ -95,6 +95,11 @@
  * V 2.1.4.5: M. Knauer:
      - [CHANGE] Zu Programmstart werden seriell Infos wie Version, Stroeme usw. ausgegeben.
      - [CHANGE] Serielle Debug Infos entfernt
+ * V 2.1.4.6: M. Knauer:
+     - [CHANGE] - Umstellung, so dass die Eck-LEDs nicht mehr Teil der Matrix sind und die Matrix somit bis zu 16 Buchstaben Spalten enthalten kann.
+     - [CHANGE] - Zwecks Umstellung auf die grosse 14*16 Buchstaben Wortuhr: Spalten und Zeilen defines (CNT_COLS und CNT_LINES) werden nun benutzt, um alle notwendigen Werte (z.B. Anzahl benoetigter WS2803 Treiber) zu berechnen.
+     - [CHANGE] - Die Eck-LEDs werden nun auch in der Datei "send_order.h" angegeben.
+     - [CHANGE] - Bei nicht gesetztem ENABLE_LDR wird immer die maximale Helligkeit eingestellt. Offene Aufgabe: Umstellen, so dass die eingestellte Helligkeit uebernommen wird!
 */
 
 #include "prj_settings.h"
@@ -116,13 +121,20 @@
 /**
  * SW Version
  */
-#define SW_VERSION_STR  "Wortuhr WS2803 0.1+ (17.12.2013)"
+#define SW_VERSION_STR  "Wortuhr WS2803 0.1+ (02.02.2014)"
 
 
 /**
  * Konfiguration, die z.B. auch im Eeprom gespeichert wird.
  */
 CConfig Config;
+
+/* Position in screen buffer / matrix for special LEDs */
+#define LED_CORNER_L_TOP     (CNT_LINES*CNT_COLS)     /* LED corner left top */
+#define LED_CORNER_R_TOP     (CNT_LINES*CNT_COLS + 1) /* LED corner right top */
+#define LED_CORNER_R_BOTTOM  (CNT_LINES*CNT_COLS + 2) /* LED corner right bottom */
+#define LED_CORNER_L_BOTTOM  (CNT_LINES*CNT_COLS + 3) /* LED corner left bottom */
+#define LED_NC               (CNT_LINES*CNT_COLS + 4) /* LED not connected */
 
 // Tabelle im ROM ablegen
 PROGMEM prog_uchar SEND_ORDER_TABLE[] = {
@@ -264,8 +276,11 @@ byte lastMode = mode;
 // Dies kann ggf. das DCF Empfangssignal stoeren!
 boolean fastDisplayRefresh_bt;
 
-// Die Matrix, eine Art Bildschirmspeicher
+// Die Matrix, der Bildschirmspeicher
 word matrix[CNT_LINES];
+
+// In folgendem Byte werden die Eck-LEDs gesetzt. Es handelt sich nicht um eine Matrix, aber es ist eine Erweiterung der Matrix und laesst sich mit diesem Namen so besser finden.
+unsigned char matrix_corners;
 
 /**
  * Hier werden die Grafiken fuer die Zahlen der
@@ -945,6 +960,8 @@ void scrambleScreenBuffer() {
   for (byte i = 0; i < CNT_LINES; i++) {
     matrix[i] = random(65536);
   }
+
+  matrix_corners = random(256);
 }
 
 /**
@@ -953,6 +970,7 @@ void scrambleScreenBuffer() {
  */
 void clearScreenBuffer() {
   memset(matrix, 0x00, sizeof(matrix));
+  matrix_corners = 0x00;
 }
 
 /**
@@ -960,6 +978,7 @@ void clearScreenBuffer() {
  */
 void setAllScreenBuffer() {
   memset(matrix, 0xFF, sizeof(matrix));
+  matrix_corners = 0xFF;
 }
 
 
@@ -967,40 +986,37 @@ void CalculateSceenBuffer(tmElements_t TimeOutput_tmElements) {
     //
     // Bildschirmpuffer beschreiben...
     //
+    clearScreenBuffer();
     switch (mode) {
       case NORMAL:
-        clearScreenBuffer();
         setMinutes(TimeOutput_tmElements.Hour, TimeOutput_tmElements.Minute); // Schreibe in den Bildschirmbuffer die Uhrzeit
         setCorners(TimeOutput_tmElements.Minute);                   // Schreibe in den Bildschirmbuffer die Minuten
         break;
 #ifdef ENABLE_ALARM
       case ALARM:
-        clearScreenBuffer();
         if(showAlarmTimeTimer == 0) {
 			setMinutes(TimeOutput_tmElements.Hour, TimeOutput_tmElements.Minute); // Schreibe in den Bildschirmbuffer die Uhrzeit
 			setCorners(TimeOutput_tmElements.Minute);                   // Schreibe in den Bildschirmbuffer die Minuten
-			matrix[4] |= 0b0000000000011111; // Alarm-LED
+			matrix_corners = 0b00001111; // Alarm-LED
         } else {        
           setMinutes(alarmTime_tmElements.getHours(), alarmTime_tmElements.getMinutes());
           setCorners(alarmTime_tmElements.getMinutes());
           cleanWordsForAlarmSettingMode(); // ES IST weg
           if(showAlarmTimeTimer % 2 == 0) {
-            matrix[4] |= 0b0000000000011111; // Alarm-LED
+            matrix_corners = 0b00001111; // Alarm-LED
           }
           showAlarmTimeTimer--;
         }
       break;
 #endif      
       case SECONDS:
-        clearScreenBuffer();
         for (byte i = 0; i < 7; i++) {
-          matrix[1 + i] |= pgm_read_byte_near(&(ziffern[TimeOutput_tmElements.Second / 10][i])) << 11;
-          matrix[1 + i] |= pgm_read_byte_near(&(ziffern[TimeOutput_tmElements.Second % 10][i])) << 5;
+          matrix[1 + i] |= pgm_read_byte_near(&(ziffern[TimeOutput_tmElements.Second / 10][i])) << 11; // ToDo: 11 nicht hart verwenden
+          matrix[1 + i] |= pgm_read_byte_near(&(ziffern[TimeOutput_tmElements.Second % 10][i])) << 5;   // ToDo: 5 nicht hart verwenden
         }
         break;
 #if defined(ENABLE_LDR)
       case LDR_MODE:
-        clearScreenBuffer();
         if (GetConfig(cfg_ldr_auto_bt)) {
           for (byte i = 0; i < 6; i++) { // ToDo: Zahl 6 nicht hart verwenden, da potenzieller Fehler
             matrix[2 + i] |= pgm_read_byte_near(&(staben['A'-'A'][i])) << 8;
@@ -1016,10 +1032,8 @@ void CalculateSceenBuffer(tmElements_t TimeOutput_tmElements) {
         scrambleScreenBuffer();
         break;
       case BLANK:
-        clearScreenBuffer();
         break;
       case BRIGHTNESS:
-        clearScreenBuffer();
         brightnessToDisplay = map(brightness, 1, MAX_BRIGHTNESS, 1, 9); // knauer: alt: ... map(brightness, 1, MAX_BRIGHTNESS, 0, 9)
         for(byte x=0; x<brightnessToDisplay; x++) {
           for(byte y=0; y<=x; y++) {
@@ -1038,7 +1052,7 @@ void CalculateSceenBuffer(tmElements_t TimeOutput_tmElements) {
  * Die Matrix ausgeben
  */
 void writeScreenBufferToMatrix() {
-	unsigned char WS2803_buf[7*18]; /* 7 LED Treiber, pro Treiber 18 PWM Werte:  7*18 = 126 */
+	unsigned char WS2803_buf[((((CNT_LINES*CNT_COLS + 4) - 1) / 18) + 1) * 18]; /* z.B.: 7 LED Treiber, pro Treiber 18 PWM Werte:  7*18 = 126 */
 
 	unsigned char buffer_pos;
 	unsigned char matrix_pos;
@@ -1057,44 +1071,52 @@ void writeScreenBufferToMatrix() {
 
 	CurrentSum = 0;
 
-	/* WS2803_buf[0..11] fuellen: Ausgaenge sind nicht angeschlossen, also Ausgaenge ausschalten. */
-	for (buffer_pos = 0; buffer_pos < 12; buffer_pos++) { /* 12 Byte */
-		WS2803_buf[buffer_pos] = 0x00;
-	}
 
-	/* WS2803_buf[12..15] fuellen: 4 Eck-LEDs */
-	for (buffer_pos = 0; buffer_pos < 4; buffer_pos++) { /* 4 Byte */
-		PwmVal = (((matrix[0] >> buffer_pos) & 0b0000000000000010) > 0) * LED_PWM_MAX;
-		WS2803_buf[12 + buffer_pos] = PwmVal;
-		
-		CurrentSum += ( ((float)PwmVal) * (LED_CURRENT / 255.0) );
-		/* 255.0 gibt den maximal einstellbaren Wert ein. 255.0 entspricht 100% an.
-		   LED_PWM_MAX hingegen begrenzt den maximal gewuenschten Einstellwert. LED_PWM_MAX muss <= 255.0 sein.
-		*/
-	}
-
-	/* WS2803_buf[16..125] fuellen: Alle Buchstaben LEDs fuellen */
-	for (buffer_pos = 0; buffer_pos < CNT_LINES * CNT_COLS; buffer_pos++) { /* 10*11 = 110 Byte */
+	/* WS2803_buf[0..125] fuellen: Gewuenschte PWM Werte fuer alle Treiber Ausgaenge ermitteln. Falls maximaler Strom ueberschritten wird, wird per PWM heruntergeregelt. */
+	for (buffer_pos = 0; buffer_pos < sizeof(WS2803_buf); buffer_pos++) { /* 7 Treiber * 18 Ausgaenge = 126 Byte */
 		matrix_pos = pgm_read_byte_near(&SEND_ORDER_TABLE[buffer_pos]);
-		zeile = (matrix_pos / CNT_COLS);
-		spalte = matrix_pos % 11;
 		
-		PwmVal = (((matrix[zeile] >> (10 - spalte)) & 0b0000000000100000) > 0) * LED_PWM_MAX;
-		WS2803_buf[16 + buffer_pos] = PwmVal;
-
+		/* Buchstaben ausgeben */
+		if (matrix_pos < (CNT_LINES*CNT_COLS)) {
+			zeile  = (matrix_pos / CNT_COLS);
+			spalte = (matrix_pos % CNT_COLS);
+		
+			PwmVal = (((matrix[zeile] >> (15 - spalte)) & 0x0001) > 0) * LED_PWM_MAX; /* linkeste Spalte wird ganz nach rechts geshiftet usw. */
+		}
+		else {
+			/* Corner LED ausgeben */
+			if (matrix_pos <= LED_CORNER_L_BOTTOM) {
+				PwmVal = (((matrix_corners >> (matrix_pos - LED_CORNER_L_TOP)) & 0b00000001) > 0) * LED_PWM_MAX;
+			}
+			else {
+				/* Ausgang ist nicht belegt oder ungueltig: PWM Wert 0 senden */
+				PwmVal = 0x00;
+			}
+		}
+		
+		/* Berechneten PWM Wert in den Buffer schreiben */
+		WS2803_buf[buffer_pos] = PwmVal;
+		
+		/* Strom fuer diese LED hinzuaddieren */
 		CurrentSum += ( ((float)PwmVal) * (LED_CURRENT / 255.0) );
 		/* 255.0 gibt den maximal einstellbaren Wert an. 255.0 entspricht 100% an.
-		   LED_PWM_MAX hingegen begrenzt den maximal gewuenschten Einstellwert. LED_PWM_MAX muss <= 255.0 sein.
+		LED_PWM_MAX hingegen begrenzt den maximal gewuenschten Einstellwert. LED_PWM_MAX muss <= 255.0 sein.
 		*/
 	}
 
-
 	/* LDR Wert verarbeiten */
+#if defined(ENABLE_LDR)
 	AnalogLdrVal = ldr.value(); /* ldr.value() zwischenspeichern, da bei jedem Aufruf unterschiedliche Werte zurueckkommen koennen. */
+#else
+	/* ToDo: Momentan wird bei nicht gesetztem ENABLE_LDR immer die maximale Helligkeit eingestellt. Umstellen, so dass die eingestellte Helligkeit uebernommen wird! */
+	AnalogLdrVal = 0;
+#endif
 	if (AnalogLdrVal > LDR_BRIGHTNESS_VAL_MIN) {
+		/* Bei Dunkelheit per PWM runterdimmen. */
 		CurrentPwmFactor = (LED_PWM_MAX - ((AnalogLdrVal - LDR_BRIGHTNESS_VAL_MIN) * PWM_LDR_STEIGUNGS_FAKTOR)) / LED_PWM_MAX;
 	}
 	else {
+		/* Es ist nicht dunkel genug, damit per PWM runtergedimmt werden muss. */
 		CurrentPwmFactor = 1.0;
 	}
 
