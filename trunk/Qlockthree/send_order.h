@@ -14,6 +14,22 @@ in welcher Reihenfolge die Buchstaben an die Treiber gesendet werden muessen.
 
 #define SEND_ORDER_VERSION_STR  "kleine Wortuhr, LEDs in idealer Reihenfolge angeschlossen"
 
+LED_NC,
+LED_NC,
+LED_NC,
+LED_NC,
+LED_NC,
+LED_NC,
+LED_NC,
+LED_NC,
+LED_NC,
+LED_NC,
+LED_NC,
+LED_NC,
+LED_CORNER_L_TOP,
+LED_CORNER_R_TOP,
+LED_CORNER_R_BOTTOM,
+LED_CORNER_L_BOTTOM,
 0,
 1,
 2,
@@ -124,4 +140,3 @@ in welcher Reihenfolge die Buchstaben an die Treiber gesendet werden muessen.
 107,
 108,
 109
-
