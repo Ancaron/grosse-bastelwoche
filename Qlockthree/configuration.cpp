@@ -9,7 +9,10 @@
  * @updated  20.01.2013
  *
  * Versionshistorie:
-  * V 1.1:  - Erste Version.
+  * V 1.1: M. Knauer:
+      - Erste Version.
+  * V 1.2: M. Knauer:
+      - [CHANGE] _config.cfg.cfg_brightness hat einen neuen Wertebereich bekommen. Gespeichert wird nun direkt die User-Einstellung und nicht mehr ein Wert von [0..255].
  */
 #include "prj_settings.h"
 #include "configuration.h"
@@ -47,12 +50,12 @@ void CConfig::Init() {
     memset(&_config, 0xFF, sizeof(_config));
 
     /* Wenn
-	     - Eeprom ist uninitialsiert (d.h. version == 0xFFFF) ODER
+	     - Eeprom ist uninitialisiert (d.h. version == 0xFFFF) ODER
 		 - das EEPROM ist per Compilerschalter nicht vorhanden
        dann	default Werte setzen:
 	*/
     _config.cfg.cfg_version = 0x0000;
-    _config.cfg.cfg_brightness_u8 = MAX_BRIGHTNESS;
+    _config.cfg.cfg_brightness_u8 = CNT_CHARS_MIN;
     _config.cfg.cfg_ldr_auto_bt = true;
 
     _cfgChanged_bt = true;
