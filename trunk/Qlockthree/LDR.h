@@ -10,6 +10,10 @@
  *
  * Versionshistorie:
  * V 1.1:  - Optimierung hinsichtlich Speicherbedarf.
+ * V 1.1.1: M. Knauer:
+     - [CHANGE] Compilerschalter LDR_AUTOSCALE deaktiviert, da (momentan) nicht mehr unterstuetzt.
+     - [CHANGE] Die Anzahl der gemittelten LDR Werte von 32 auf 5 geaendert.
+     - [CHANGE] MAX_BRIGHTNESS entfernt. Der Wert wird nun nicht mehr hart vorgegeben, sondern in der Variablen maxBrightness zur Laufzeit angegeben.
  */
 #ifndef LDR_H
 #define LDR_H
@@ -26,16 +30,13 @@
  * das Display flackern, dann muss man einmal ueber den LDR 'wischen', damit er verschiedene
  * Messwerte bekommt.
  */
-#define LDR_AUTOSCALE
-/**
- * Die maximale Helligkeit (default = 9)
- */
-#define MAX_BRIGHTNESS 9
+/* #define LDR_AUTOSCALE    Compilerschalter nicht unterstuetzt! */
+
 /**
  * Die Menge der Werte fuer die Glaettung. Mehr Werte bringen bessere Ergebnisse aber
  * brauchen auch mehr Zeit. (Gleitender Mittelwert)
  */
-#define LDR_MEAN_COUNT 32
+#define LDR_MEAN_COUNT 5
 
 class LDR {
 public:
