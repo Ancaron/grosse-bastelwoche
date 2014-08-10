@@ -121,7 +121,7 @@
 /**
  * SW Version
  */
-#define SW_VERSION_STR  "Wortuhr WS2803 0.1+ (02.02.2014)"
+#define SW_VERSION_STR  "Wortuhr WS2803 0.1+ (10.08.2014)"
 
 
 /**
@@ -177,7 +177,7 @@ DCF77Helper dcf77Helper;
   LED Driver WS2803 von Worldsemi
 */
 #define WS2803_DELAY       0     /* with a 16 MHz Arduino no delay is needed */
-#define WS2803_RESET_TIME  650   /* perhaps this time can be set to 600 (?) */
+#define WS2803_RESET_TIME  600
 
 #define WS2803_CKO  10 /* Clock output an D10 */
 #define WS2803_SDO  11 /* Serial data output an D11 */
@@ -208,11 +208,9 @@ boolean toneIsOn;
 /**
  * Die Helligkeit
  */
-int brightness;
-/**
- * Die Helligkeit zum Anzeigen
- */
-int brightnessToDisplay;
+int brightness; /* Wertebereich, wenn manueller Betrieb: [0..CNT_CHARS_MIN] --> [dunkel..hell] */
+                /* Wertebereich, wenn LDR Betrieb:       [0..1023] --> [hell..dunkel]  Ein kleiner LDR Wert bedeutet eine hohe gemessene Helligkeit. */
+int maxBrightness; /* Angabe, wie gross brightness maximal werden kann (CNT_CHARS_MIN oder 1023)  */
 
 /**
  * Die Tasten
@@ -289,6 +287,11 @@ unsigned char matrix_corners;
 #include "Zahlen.h"
 #include "Staben.h"
 
+#if defined(WORDCLOCK_BIG)
+  #include "lang_big_de.h"
+#endif
+
+#if defined(WORDCLOCK_SMALL)
 /**
  * Hier werden die sprachabhaengigen Dateien includiert.
  * Die Sprache kann weiter oben mit Compiler-Schaltern geaendert werden.
@@ -345,6 +348,9 @@ unsigned char matrix_corners;
 /* Header fuer Eck LEDs includieren */
 #include "SetCorners.h"
 
+#endif /* #if defined(WORDCLOCK_SMALL) */
+
+
 
 /**
  * Initialisierung. setup() wird einmal zu Beginn aufgerufen, wenn der
@@ -391,6 +397,7 @@ void setup() {
   pinMode(SPEAKER, OUTPUT);
 #endif
 
+#if defined(START_WITH_HELLO)
   // DCF77-LED drei Mal als 'Hello' blinken lassen
   // und Speaker piepsen kassen, falls ENABLE_ALARM eingeschaltetr ist.
   for(byte i=0; i<3; i++) {
@@ -413,6 +420,7 @@ void setup() {
 #endif
     delay(100);    
   }
+#endif
 
   // Matrix loeschen
   clearScreenBuffer();
@@ -438,9 +446,9 @@ void setup() {
   // den Sekundenwechsel, Danke an Peter.
   attachInterrupt(0, updateFromRtc, FALLING);
 
-  // Werte vom LDR einlesen, da die ersten nichts taugen...
+  // So viele Werte vom LDR einlesen, damit ueber LDR_MEAN_COUNT Werte gemittelt werden kann.
 #ifdef ENABLE_LDR
-  for(int i=0; i<1000; i++) {
+  for(int i=0; i<LDR_MEAN_COUNT; i++) {
     ldr.value();
   }  
 #endif
@@ -455,12 +463,10 @@ void setup() {
   // Init LED Driver WS2803
   WS2803_CKO_Set_PinMode();   // sets the pin as output
   WS2803_SDO_Set_PinMode();   // sets the pin as output
-  WS2803_CKO_Write_Low();
-  WS2803_SDO_Write_Low();
-  delayMicroseconds(650); // CKI fuer laenger als 600 us LOW --> Reset
+  delayMicroseconds(WS2803_RESET_TIME);  // CKI fuer laenger als 600 us LOW --> Reset
 
   // rtcSQWLed-LED drei Mal als 'Hello' blinken lassen
-  // und Speaker piepsen kassen, falls ENABLE_ALARM eingeschaltetr ist.
+  // und Speaker piepsen lassen, falls ENABLE_ALARM eingeschaltetr ist.
   for(byte i=0; i<3; i++) {
     digitalWrite(rtcSQWLed, HIGH);
 #ifdef ENABLE_ALARM
@@ -506,19 +512,24 @@ void loop() {
 	TimeNowTemp_1970 = now();                            // Zeit fuer diesen loop-Durchlauf sichern
 	breakTime(TimeNowTemp_1970, TimeNowTemp_tmElements); // Zeit fuer diesen loop-Durchlauf sichern
 
-  //
-  // Dimmung.
-  //
+        //
+        // Dimmung.
+        //
 #if defined(ENABLE_LDR)
-  if (GetConfig(cfg_ldr_auto_bt)) {
-    brightness = ldr.brightness();
-  }
-  else {
-    brightness = GetConfig(cfg_brightness_u8);
-  }
-#else
-    brightness = GetConfig(cfg_brightness_u8);
+        if (GetConfig(cfg_ldr_auto_bt)) {
+            brightness = ldr.value();
+            maxBrightness = 1023;
+        }
+        else
 #endif
+        {
+          brightness = GetConfig(cfg_brightness_u8);
+		  if (brightness > CNT_CHARS_MIN)
+		    brightness = CNT_CHARS_MIN;
+		  if (brightness < 1)
+		    brightness = 1;
+		  maxBrightness = CNT_CHARS_MIN;
+        }
 
 
 	// Zu jeder 55. Sekunde RTC auslesen.
@@ -615,14 +626,6 @@ void loop() {
 #endif      
       break;
 #endif      
-      case BRIGHTNESS:
-        if(brightness < MAX_BRIGHTNESS) {
-          brightness++;
-          SetConfig(cfg_brightness_u8, brightness);
-		  
-		  fastDisplayRefresh_bt = true; /* sofortige Ausgabe veranlassen */
-        }
-      break;
 #if defined(ENABLE_LDR)
       case LDR_MODE:
         SetConfig(cfg_ldr_auto_bt, !GetConfig(cfg_ldr_auto_bt));
@@ -632,9 +635,22 @@ void loop() {
         Serial.print(F("LDR is now "));
         Serial.println(GetConfig(cfg_ldr_auto_bt));
         Serial.flush();
-#endif      
+#endif
         break;
 #endif
+      case BRIGHTNESS:
+        if(brightness < CNT_CHARS_MIN) {
+          brightness++;
+
+          SetConfig(cfg_brightness_u8, brightness);
+#ifdef DEBUG
+        Serial.print(F("brightness is now "));
+        Serial.println(GetConfig(cfg_brightness_u8));
+        Serial.flush();
+#endif
+	  fastDisplayRefresh_bt = true; /* sofortige Ausgabe veranlassen */
+        }
+      break;
     }
   }
   
@@ -684,14 +700,6 @@ void loop() {
 #endif      
       break;
 #endif      
-      case BRIGHTNESS:
-        if(brightness > 2) {
-          brightness--;
-          SetConfig(cfg_brightness_u8, brightness);
-		  
-		  fastDisplayRefresh_bt = true; /* sofortige Ausgabe veranlassen */
-        }
-        break;
 #if defined(ENABLE_LDR)
       case LDR_MODE:
         SetConfig(cfg_ldr_auto_bt, !GetConfig(cfg_ldr_auto_bt));
@@ -704,12 +712,27 @@ void loop() {
 #endif      
         break;
 #endif
+      case BRIGHTNESS:
+        if(brightness > 1) { /* minimal bis auf 1 Strich runtergehen, damit die Uhr nicht komplett abgedunkelt werden kann */
+          brightness--;
+
+          SetConfig(cfg_brightness_u8, brightness);
+#ifdef DEBUG
+        Serial.print(F("brightness is now "));
+        Serial.println(GetConfig(cfg_brightness_u8));
+        Serial.flush();
+#endif
+
+          fastDisplayRefresh_bt = true; /* sofortige Ausgabe veranlassen */
+        }
+        break;
     }
   }
   
   // Taste Moduswechsel gedrueckt?
   if (modeChangeButton.pressed()) {
     mode++;
+    fastDisplayRefresh_bt = true;
 
 #if !defined(ENABLE_LDR)
     /* Wenn es per Compilerschalter keinen LDR gibt, darf der Mode zum Wechsel zwischen LDR Auto mode und deaktiviertem LDR nicht angezeigt werden. */	
@@ -860,10 +883,10 @@ void loop() {
 		breakTime(TimeLastOutput_1970, TimeTemp_tmElements);  // break time_t into elements
 
 		// ScreenBuffer berechnen
-		CalculateSceenBuffer(TimeTemp_tmElements);
+		CalculateScreenBuffer(TimeTemp_tmElements);
 		
-		// ScreenBuffer ausgeben
-		writeScreenBufferToMatrix();
+		// ScreenBuffer senden
+		sendScreenBufferToWS2803();
 
 		time_next_output_millis += 1000; /* naechste Ausgabe nach 1 s */
 		time_seconds++;
@@ -982,21 +1005,28 @@ void setAllScreenBuffer() {
 }
 
 
-void CalculateSceenBuffer(tmElements_t TimeOutput_tmElements) {
+void CalculateScreenBuffer(tmElements_t TimeOutput_tmElements) {
     //
     // Bildschirmpuffer beschreiben...
     //
     clearScreenBuffer();
     switch (mode) {
       case NORMAL:
+#if defined(WORDCLOCK_SMALL)
         setMinutes(TimeOutput_tmElements.Hour, TimeOutput_tmElements.Minute); // Schreibe in den Bildschirmbuffer die Uhrzeit
-        setCorners(TimeOutput_tmElements.Minute);                   // Schreibe in den Bildschirmbuffer die Minuten
+        setCorners(TimeOutput_tmElements.Minute);                             // Schreibe in den Bildschirmbuffer die Minuten
+#endif
+
+#if defined(WORDCLOCK_BIG)
+	display_time_wordclock_big(TimeOutput_tmElements.Hour, TimeOutput_tmElements.Minute); // Schreibe in den Bildschirmbuffer die Uhrzeit
+#endif
+
         break;
 #ifdef ENABLE_ALARM
       case ALARM:
         if(showAlarmTimeTimer == 0) {
 			setMinutes(TimeOutput_tmElements.Hour, TimeOutput_tmElements.Minute); // Schreibe in den Bildschirmbuffer die Uhrzeit
-			setCorners(TimeOutput_tmElements.Minute);                   // Schreibe in den Bildschirmbuffer die Minuten
+			setCorners(TimeOutput_tmElements.Minute);                             // Schreibe in den Bildschirmbuffer die Minuten
 			matrix_corners = 0b00001111; // Alarm-LED
         } else {        
           setMinutes(alarmTime_tmElements.getHours(), alarmTime_tmElements.getMinutes());
@@ -1034,10 +1064,9 @@ void CalculateSceenBuffer(tmElements_t TimeOutput_tmElements) {
       case BLANK:
         break;
       case BRIGHTNESS:
-        brightnessToDisplay = map(brightness, 1, MAX_BRIGHTNESS, 1, 9); // knauer: alt: ... map(brightness, 1, MAX_BRIGHTNESS, 0, 9)
-        for(byte x=0; x<brightnessToDisplay; x++) {
+        for(byte x=0; x<brightness; x++) {
           for(byte y=0; y<=x; y++) {
-            matrix[9-y] |= 1 << (14-x);
+            matrix[CNT_LINES-1 - y] |= 1 << (15 - x); /* 15 ergibt sich daraus, dass eine Matrix Zeile immer durch 2 Byte dargestellt wird und am MSB anfaengt. Die Ausgabe der Helligkeitsanzeige beginnt immer ganz links. */
           }
         }
       break;
@@ -1051,7 +1080,7 @@ void CalculateSceenBuffer(tmElements_t TimeOutput_tmElements) {
 /**
  * Die Matrix ausgeben
  */
-void writeScreenBufferToMatrix() {
+void sendScreenBufferToWS2803() {
 	unsigned char WS2803_buf[((((CNT_LINES*CNT_COLS + 4) - 1) / 18) + 1) * 18]; /* z.B.: 7 LED Treiber, pro Treiber 18 PWM Werte:  7*18 = 126 */
 
 	unsigned char buffer_pos;
@@ -1065,8 +1094,9 @@ void writeScreenBufferToMatrix() {
 	float CurrentSum_TEMP;
 	float CurrentPwmFactor;
 	
-	int AnalogLdrVal;
+#if defined(ENABLE_LDR)
 	#define PWM_LDR_STEIGUNGS_FAKTOR  ((LED_PWM_MAX - LDR_MIN_PWM) / (1023.0 - LDR_BRIGHTNESS_VAL_MIN))
+#endif
 
 
 	CurrentSum = 0;
@@ -1104,21 +1134,24 @@ void writeScreenBufferToMatrix() {
 		*/
 	}
 
+
 	/* LDR Wert verarbeiten */
 #if defined(ENABLE_LDR)
-	AnalogLdrVal = ldr.value(); /* ldr.value() zwischenspeichern, da bei jedem Aufruf unterschiedliche Werte zurueckkommen koennen. */
-#else
-	/* ToDo: Momentan wird bei nicht gesetztem ENABLE_LDR immer die maximale Helligkeit eingestellt. Umstellen, so dass die eingestellte Helligkeit uebernommen wird! */
-	AnalogLdrVal = 0;
+	if (GetConfig(cfg_ldr_auto_bt)) {
+	  if (brightness > LDR_BRIGHTNESS_VAL_MIN) {
+	    /* Bei per PWM runterdimmen. */
+	    CurrentPwmFactor = (LED_PWM_MAX - ((brightness - LDR_BRIGHTNESS_VAL_MIN) * PWM_LDR_STEIGUNGS_FAKTOR)) / LED_PWM_MAX;
+	    }
+	  else {
+	    /* Es ist nicht dunkel genug, damit per PWM runtergedimmt werden muss. */
+	    CurrentPwmFactor = 1.0;
+	  }
+        }
+        else
 #endif
-	if (AnalogLdrVal > LDR_BRIGHTNESS_VAL_MIN) {
-		/* Bei Dunkelheit per PWM runterdimmen. */
-		CurrentPwmFactor = (LED_PWM_MAX - ((AnalogLdrVal - LDR_BRIGHTNESS_VAL_MIN) * PWM_LDR_STEIGUNGS_FAKTOR)) / LED_PWM_MAX;
-	}
-	else {
-		/* Es ist nicht dunkel genug, damit per PWM runtergedimmt werden muss. */
-		CurrentPwmFactor = 1.0;
-	}
+        {
+		CurrentPwmFactor = brightness / (float)maxBrightness;
+        }
 
 	/* Faktor berechnen, um ggf. den Strom per PWM zu begrenzen. */
 	CurrentSum_TEMP = CurrentSum*CurrentPwmFactor;
@@ -1128,7 +1161,8 @@ void writeScreenBufferToMatrix() {
 
     for (buffer_pos = 0; buffer_pos < sizeof(WS2803_buf); buffer_pos++) {
         /* 1 Byte senden, d.h. 1 PWM Wert senden */
-		output_data = WS2803_buf[buffer_pos] * CurrentPwmFactor;
+	output_data = WS2803_buf[buffer_pos] * CurrentPwmFactor;
+
         for (unsigned char bit = 0x80; bit; bit >>= 1) {
           if (output_data & bit)
             WS2803_SDO_Write_High();
@@ -1151,10 +1185,46 @@ void writeScreenBufferToMatrix() {
 #if WS2803_DELAY != 0
     delayMicroseconds(WS2803_DELAY);
 #endif
-    WS2803_CKO_Write_Low(); // Clock low
-#if WS2803_DELAY != 0
-    delayMicroseconds(WS2803_DELAY);
-#endif
-    WS2803_SDO_Write_Low();
+
     delayMicroseconds(WS2803_RESET_TIME); // CKI fuer laenger als 600 us LOW --> Reset, Daten uebernehmen
 }
+
+// find the words to describe time
+#if defined(WORDCLOCK_BIG)
+void display_time_wordclock_big(byte hours, byte minutes)
+{
+	word hour_arr[CNT_LINES];
+	word minute_arr[CNT_LINES];
+
+	if( hours == 0 ) hours = 12;
+	if( hours > 12 ) hours = hours - 12;
+
+
+	// calc the offset for the 15 Min interval
+	switch(minutes)
+	{
+		// min =15
+		case 15:
+			hours = hours + 12;	// +12 additional arrays for hours
+		break;
+		// min =30 or 45
+		case 30:
+		case 45:
+			if( hours > 11 ) hours = hours - 12;
+			hours = hours + 12 +1 ; //"halb/viertel vor X+1(next hour)"
+		break;
+	}
+
+	
+	// fetch the appropriate arrays from PGM space into RAM
+	memcpy_P(hour_arr, (PGM_P)pgm_read_word( &MAX_h[hours-1] ), sizeof(hour_arr));
+	memcpy_P(minute_arr, (PGM_P)pgm_read_word( &MAX_m[minutes] ), sizeof(minute_arr));
+
+
+	// turn ON current hour's LEDs for this hour
+	// we will turn ON current minute's LEDs also here
+	for(uint8_t i=0; i<CNT_LINES; i++) {
+		matrix[i] = ( (hour_arr[i]) | (minute_arr[i]) );
+	}
+}
+#endif
