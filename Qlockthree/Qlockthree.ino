@@ -100,6 +100,15 @@
      - [CHANGE] - Zwecks Umstellung auf die grosse 14*16 Buchstaben Wortuhr: Spalten und Zeilen defines (CNT_COLS und CNT_LINES) werden nun benutzt, um alle notwendigen Werte (z.B. Anzahl benoetigter WS2803 Treiber) zu berechnen.
      - [CHANGE] - Die Eck-LEDs werden nun auch in der Datei "send_order.h" angegeben.
      - [CHANGE] - Bei nicht gesetztem ENABLE_LDR wird immer die maximale Helligkeit eingestellt. Offene Aufgabe: Umstellen, so dass die eingestellte Helligkeit uebernommen wird!
+ * V 2.1.4.7: M. Knauer:
+     - [NEW] Unterstuetzung einer grossen Wortuhr im Format 14*16 Buchstaben hinzu. Es werden alle Minuten in Worten angezeigt.
+     - [BUGFIX] Helligkeit laesst sich wieder manuell einstellen.
+     - [CHANGE] Nach einem Moduswechsel wird das Display per fastDisplayRefresh_bt sofort neu angezeigt und nicht erst nach spaetestens einer Sekunde.
+     - [CHANGE] Handling fuer die Helligkeit ueberarbeitet.
+     - [CHANGE] Anstatt nach Reset pauschal 1000 Werte vom LDR einzulesen werden nun nur noch so viele Werte eingelesen, so dass einmal ueber alle Werte gemittelt wird.
+     - [CHANGE] WS2803 Treiber: Reset Zeit von 650 auf 600 µs heruntergesetzt.
+     - [CHANGE] WS2803 Treiber: Uberfluessige Clock- und Datenwechsel entfernt.
+     - [CHANGE] Funktion writeScreenBufferToMatrix(...) umbenannt in sendScreenBufferToWS2803(...)
 */
 
 #include "prj_settings.h"
