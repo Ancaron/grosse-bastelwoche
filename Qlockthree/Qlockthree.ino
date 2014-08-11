@@ -109,6 +109,10 @@
      - [CHANGE] WS2803 Treiber: Reset Zeit von 650 auf 600 µs heruntergesetzt.
      - [CHANGE] WS2803 Treiber: Uberfluessige Clock- und Datenwechsel entfernt.
      - [CHANGE] Funktion writeScreenBufferToMatrix(...) umbenannt in sendScreenBufferToWS2803(...)
+
+ * V 2.1.4.8: M. Knauer:
+     - [CHANGE] PROGMEM Angaben an neue Arduino Version 1.5.7 angepasst.
+     - [CHANGE] WS2803 Treiber: WS2803_CKO_Write_Low() geaendert, so dass bei zu langer Bearbeitung nicht versehentlich das Clock Signal 600 µC low sein kann.
 */
 
 #include "prj_settings.h"
@@ -146,7 +150,7 @@ CConfig Config;
 #define LED_NC               (CNT_LINES*CNT_COLS + 4) /* LED not connected */
 
 // Tabelle im ROM ablegen
-PROGMEM prog_uchar SEND_ORDER_TABLE[] = {
+PROGMEM const unsigned char SEND_ORDER_TABLE[] = {
   #include "send_order.h"
 };
 
@@ -1168,9 +1172,11 @@ void sendScreenBufferToWS2803() {
 		CurrentPwmFactor = MAX_CURRENT / CurrentSum_TEMP;
 	}
 
+    WS2803_CKO_Write_Low();  // Clock low
+
     for (buffer_pos = 0; buffer_pos < sizeof(WS2803_buf); buffer_pos++) {
         /* 1 Byte senden, d.h. 1 PWM Wert senden */
-	output_data = WS2803_buf[buffer_pos] * CurrentPwmFactor;
+	    output_data = WS2803_buf[buffer_pos] * CurrentPwmFactor;
 
         for (unsigned char bit = 0x80; bit; bit >>= 1) {
           if (output_data & bit)
@@ -1185,15 +1191,12 @@ void sendScreenBufferToWS2803() {
 #if WS2803_DELAY != 0
           delayMicroseconds(WS2803_DELAY);
 #endif
-          WS2803_CKO_Write_Low();  // Clock low
         }
     }
 
 
     // Neues Bild ausgeben
-#if WS2803_DELAY != 0
-    delayMicroseconds(WS2803_DELAY);
-#endif
+    WS2803_CKO_Write_Low();  // Clock low
 
     delayMicroseconds(WS2803_RESET_TIME); // CKI fuer laenger als 600 us LOW --> Reset, Daten uebernehmen
 }
