@@ -46,7 +46,7 @@
 
 // Knauer: Die Zeichen '0' und '1' angepasst.
 // Knauer: Die Zeichen '=' und 'A' bis 'F' hinzu.
-PROGMEM prog_uchar ziffern[][7] = {
+PROGMEM const unsigned char ziffern[][7] = {
   /* '0' */
   {
     0b00001110,
