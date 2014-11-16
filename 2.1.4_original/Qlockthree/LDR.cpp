@@ -10,13 +10,8 @@
  *
  * Versionshistorie:
  * V 1.1:  - Optimierung hinsichtlich Speicherbedarf.
- * V 1.1.2: M. Knauer:
-     - [CHANGE] "prj_settings.h" includiert
-     - [CHANGE] MAX_BRIGHTNESS entfernt. Der Wert wird nun nicht mehr hart vorgegeben, sondern in der Variablen maxBrightness zur Laufzeit angegeben.
  */
 #include "LDR.h"
-
-#include "prj_settings.h"
 
 // #define DEBUG
 
@@ -66,7 +61,7 @@ int LDR::brightness() {
       _max = val;
     }
 #endif
-  int b = map(val, _min, _max, 1023, 0);
+  int b = map(val, _min, _max, MAX_BRIGHTNESS, 1);
 #ifdef DEBUG
     Serial.print(F(" _min: "));
     Serial.print(_min);

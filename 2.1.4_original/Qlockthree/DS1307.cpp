@@ -14,8 +14,6 @@
  * V 1.3:  - getMinutesOfDay eingefuehrt.
  * V 1.4:  - getMinutesOf12HoursDay eingefuehrt.
  * V 1.5:  - Optimierung hinsichtlich Speicherbedarf.
- * V 1.5.1: M. Knauer:
-     - [BUGFIX] Wenn beim Lesen der RTC Uhrzeit void DS1307::readTime() eine falsche Anzahl von Daten zurueck kommt, werden die gelesenen Daten verworfen.
  */
 #include <Wire.h> // Wire library fuer I2C
 #include "DS1307.h"
@@ -38,55 +36,29 @@ void DS1307::readTime() {
   Wire.beginTransmission(_address);
   Wire.write((uint8_t)0x00);
   Wire.endTransmission();
-  
-  if (7 == Wire.requestFrom(_address, 7)) {
-    // A few of these need masks because certain bits are control bits
-    _seconds = bcdToDec(Wire.read() & 0x7f);
-    _minutes = bcdToDec(Wire.read());
-    _hours = bcdToDec(Wire.read() & 0x3f); // Need to change this if 12 hour am/pm
-    _dayOfWeek = bcdToDec(Wire.read());
-    _date = bcdToDec(Wire.read());
-    _month = bcdToDec(Wire.read());
-    _year = bcdToDec(Wire.read());
-
-#if defined(KNAUER_DEBUG)
-Serial.print(F("Time ds1307 read: "));
-Serial.print(_hours);
-Serial.print(":");
-Serial.print(_minutes);
-Serial.print(":");
-Serial.print(_seconds);
-Serial.print(" ");
-Serial.print(_date);
-Serial.print(".");
-Serial.print(_month);
-Serial.print(".");
-Serial.println(_year);
-Serial.flush();
-#endif
-  }
-#if defined(KNAUER_DEBUG)
-else {
-Serial.println(F("Time ds1307 FAILED "));
-Serial.flush();
-}
-#endif
+  Wire.requestFrom(_address, 7);
+  // A few of these need masks because certain bits are control bits
+  _seconds = bcdToDec(Wire.read() & 0x7f);
+  _minutes = bcdToDec(Wire.read());
+  _hours = bcdToDec(Wire.read() & 0x3f); // Need to change this if 12 hour am/pm
+  _dayOfWeek = bcdToDec(Wire.read());
+  _date = bcdToDec(Wire.read());
+  _month = bcdToDec(Wire.read());
+  _year = bcdToDec(Wire.read());
 #else
   // Reset the register pointer
   Wire.beginTransmission(_address);
   Wire.send(0x00);
   Wire.endTransmission();
-  
-  if (7 == Wire.requestFrom(_address, 7)) {
-    // A few of these need masks because certain bits are control bits
-    _seconds = bcdToDec(Wire.receive() & 0x7f);
-    _minutes = bcdToDec(Wire.receive());
-    _hours = bcdToDec(Wire.receive() & 0x3f); // Need to change this if 12 hour am/pm
-    _dayOfWeek = bcdToDec(Wire.receive());
-    _date = bcdToDec(Wire.receive());
-    _month = bcdToDec(Wire.receive());
-    _year = bcdToDec(Wire.receive());
-  }
+  Wire.requestFrom(_address, 7);
+  // A few of these need masks because certain bits are control bits
+  _seconds = bcdToDec(Wire.receive() & 0x7f);
+  _minutes = bcdToDec(Wire.receive());
+  _hours = bcdToDec(Wire.receive() & 0x3f); // Need to change this if 12 hour am/pm
+  _dayOfWeek = bcdToDec(Wire.receive());
+  _date = bcdToDec(Wire.receive());
+  _month = bcdToDec(Wire.receive());
+  _year = bcdToDec(Wire.receive());
 #endif
 }
 

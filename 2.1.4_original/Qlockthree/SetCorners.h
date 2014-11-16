@@ -12,7 +12,6 @@
  *
  * Versionshistorie:
  * V 1.1:  - Optimierung hinsichtlich Speicherbedarf.
- * V 1.1.2: M.Knauer: - Umstellung, so dass die Eck-LEDs nicht mehr Teil der Matrix sind und die Matrix somit bis zu 16 Buchstaben Spalten enthalten kann.
  */
 #ifndef SETCORNERS_H
 #define SETCORNERS_H
@@ -27,19 +26,24 @@
 void setCorners(byte minutes) {
   switch (minutes % 5) {
   case 0:
-    matrix_corners = 0b00000000;
     break;
   case 1:
-    matrix_corners = 0b00000001;
+    matrix[1] |= 0b0000000000011111; // 1
     break;
   case 2:
-    matrix_corners = 0b00000011;
+    matrix[1] |= 0b0000000000011111; // 1
+    matrix[0] |= 0b0000000000011111; // 2
     break;
   case 3:
-    matrix_corners = 0b00000111;
+    matrix[1] |= 0b0000000000011111; // 1
+    matrix[0] |= 0b0000000000011111; // 2
+    matrix[3] |= 0b0000000000011111; // 3
     break;
   case 4:
-    matrix_corners = 0b00001111;
+    matrix[1] |= 0b0000000000011111; // 1
+    matrix[0] |= 0b0000000000011111; // 2
+    matrix[3] |= 0b0000000000011111; // 3
+    matrix[2] |= 0b0000000000011111; // 4
     break;
   }
 }

@@ -16,8 +16,6 @@
  * V 1.4  - Kompatibilitaet zu Arduino-IDE 1.0 hergestellt.
  * V 1.5  - Strings in PROGMEM ausgelagert.
  * V 1.6  - Optimierung hinsichtlich Speicherbedarf.
- * V 1.6.1: M. Knauer:
-     - [CHANGE] Umstellung der SW auf die Time.h Library.
  */
 #include "DCF77Helper.h"
 
@@ -29,39 +27,35 @@
 DCF77Helper::DCF77Helper() {
   _cursor = 0;
   for(byte i=0; i<DCF77HELPER_MAX_SAMPLES; i++) {
-    _zeitstempelDcf77[i] = 400 * i * SECS_PER_DAY; // Faktor 400 fuehrt zu verschieden Jahren
-    _zeitstempelRtc[i]   = 900 * i * SECS_PER_DAY; // Faktor 900 fuehrt zu verschieden Jahren, auch zwischen Dcf77 und Rtc
+    _zeitstempelDcf77[i] = TimeStamp();
+    _zeitstempelDcf77[i].set(i, i, i, i, i, i);
+    
+    _zeitstempelRtc[i] = TimeStamp();
+    _zeitstempelRtc[i].set(10000, 0, 0, 0, 0, 0);
   }
 }
 
 /**
  * Einen neuen Sample hinzufuegen
  */
-void DCF77Helper::addSample(time_t time_dcf77, time_t time_ds1307) {
+void DCF77Helper::addSample(MyDCF77 dcf77, DS1307 ds1307) {
 #ifdef DEBUG
   Serial.print(F("Adding sample from dcf77: "));
 #endif
-  _zeitstempelDcf77[_cursor] = time_dcf77;
+  _zeitstempelDcf77[_cursor].setFrom(dcf77);
 #ifdef DEBUG
   Serial.println(_zeitstempelDcf77[_cursor].asString());
   Serial.print(F("Adding sample from ds1307: "));
 #endif
-  _zeitstempelRtc[_cursor] = time_ds1307;
+  _zeitstempelRtc[_cursor].setFrom(ds1307);
 #ifdef DEBUG
   Serial.println(_zeitstempelRtc[_cursor].asString());
   Serial.flush();
 #endif
   _cursor++;
-  if(_cursor >= DCF77HELPER_MAX_SAMPLES) {
+  if(_cursor == DCF77HELPER_MAX_SAMPLES) {
     _cursor = 0;
   }
-#if defined(KNAUER_DEBUG)
-Serial.print(F("addSample: DCF: "));
-Serial.print(time_dcf77);
-Serial.print(", Interne Uhr");
-Serial.println(time_ds1307);
-Serial.flush();
-#endif
 }
 
 /**
@@ -69,18 +63,16 @@ Serial.flush();
  */
 boolean DCF77Helper::samplesOk() {
   boolean ret = true;
-
   for(byte i=0; i<DCF77HELPER_MAX_SAMPLES-1; i++) {
     // Teste den Minutenabstand zwischen den Zeitstempeln...
-	
-	if (( (_zeitstempelDcf77[i] / 60) - (_zeitstempelDcf77[i+1] / 60)) != ( (_zeitstempelRtc[i] / 60) - (_zeitstempelRtc[i+1] / 60) )) { // Pruefung von Datum Uhrzeit
+    if((_zeitstempelDcf77[i].getMinutesOfDay() - _zeitstempelDcf77[i+1].getMinutesOfDay()) != (_zeitstempelRtc[i].getMinutesOfDay() - _zeitstempelRtc[i+1].getMinutesOfDay())) {
 #ifdef DEBUG
       Serial.print(F("Diff #"));
       Serial.print(i);
       Serial.print(F(" distance is wrong ("));
-      Serial.print((_zeitstempelDcf77[i] / 60) - (_zeitstempelDcf77[i+1] / 60));
+      Serial.print(_zeitstempelDcf77[i].getMinutesOfDay() - _zeitstempelDcf77[i+1].getMinutesOfDay());
       Serial.print(F("!="));
-      Serial.print((_zeitstempelRtc[i] / 60) - (_zeitstempelRtc[i+1] / 60));
+      Serial.print(_zeitstempelRtc[i].getMinutesOfDay() - _zeitstempelRtc[i+1].getMinutesOfDay());
       Serial.println(F(")."));
       Serial.flush();
 #endif    
@@ -91,9 +83,9 @@ boolean DCF77Helper::samplesOk() {
       Serial.print(F("Diff #"));
       Serial.print(i);
       Serial.print(F(" distance is ok ("));
-      Serial.print((_zeitstempelDcf77[i] / 60) - (_zeitstempelDcf77[i+1] / 60));
+      Serial.print(_zeitstempelDcf77[i].getMinutesOfDay() - _zeitstempelDcf77[i+1].getMinutesOfDay());
       Serial.print(F("=="));
-      Serial.print((_zeitstempelRtc[i] / 60) - (_zeitstempelRtc[i+1] / 60));
+      Serial.print(_zeitstempelRtc[i].getMinutesOfDay() - _zeitstempelRtc[i+1].getMinutesOfDay());
       Serial.println(F(")."));
       Serial.flush();
 #endif    

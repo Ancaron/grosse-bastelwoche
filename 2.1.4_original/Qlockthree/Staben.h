@@ -15,7 +15,7 @@
 
 #include <avr/pgmspace.h>
 
-PROGMEM const unsigned char staben[26][6] = {
+PROGMEM prog_uchar staben[26][6] = {
   { // 0:A
     0b00001100,
     0b00010010,
