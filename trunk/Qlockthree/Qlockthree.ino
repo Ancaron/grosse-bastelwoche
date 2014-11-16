@@ -134,7 +134,7 @@
 /**
  * SW Version
  */
-#define SW_VERSION_STR  "Wortuhr WS2803 0.2 (16.11.2014)"
+#define SW_VERSION_STR  "Wortuhr WS2803 0.2b (16.11.2014)"
 
 
 /**
