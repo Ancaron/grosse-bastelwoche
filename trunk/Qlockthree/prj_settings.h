@@ -17,6 +17,10 @@
  * V 1.4:
      - [CHANGE] Erweiterung, so dass eine kleine Wortuhr (10*11+4=114 LEDs) und eine grosse Wortuhr (14*16+4=228 LEDs) moeglich ist.
      - [CHANGE] Defaultwert fuer maximalen LED Strom aller LEDs zusammen von 1.0 auf 0.8 geaendert. Ein z.B. 1 A Stromnetzteil muss auch noch den Rest der Elektronik (Arduino Board usw.) versorgen.
+ * V 1.5:
+     - [NEW] Zwecks schnellerem Start der Uhr nach Reset kann das "Hello" Blinken per  Compilerschaltert START_WITH_HELLO ausgeschaltet werden.
+     - [CHANGE] defines zur Angabe einer kleinen oder grossen Wortuhr umbenannt.
+
  */
 #ifndef PRJ_SETTINGS_H
 #define PRJ_SETTINGS_H
@@ -34,8 +38,8 @@
 /*
  * Welche Wortuhr, 10*11 LEDs oder 14*16 LEDs? Es muss genau eines der defines gesetzt sein.
  */
-#define WORTUHR_GROESSE_KLEIN   /* 10*11 + 4 = 114 LEDs */
-//#define WORTUHR_GROESSE_GROSS   /* 14*16 + 4 = 228 LEDs */
+#define WORDCLOCK_SMALL   /* 10*11 + 4 = 114 LEDs */
+/* #define WORDCLOCK_BIG */     /* 14*16 + 4 = 228 LEDs */
 
 
 /*
@@ -67,6 +71,12 @@
 // #define ENABLE_ALARM
 
 /*
+ * Zwecks schnellerem Start der Uhr nach Reset kann der "Hello-Start" (Blinken zweier LEDs) ausgeschaltet werden
+ * (Default: "Hello" ist eingeschaltet).
+*/
+#define START_WITH_HELLO
+
+/*
  * Die Status-LEDs koennen hier durch auskommentieren ausgeschaltet werden.
  * Default: eingeschaltet 
  */
@@ -92,24 +102,41 @@
 */
 #define LED_CURRENT 0.020 /* max. 20 mA pro LED (d.h. bei voller Ansteuerung) */
 #define MAX_CURRENT 0.8   /* Maximaler Strom fuer alle LEDs zusammen. Bei Stroemen darueber wird per PWM abgeregelt. */
+/* LED_PWM_MAX gibt den maximal einstellbaren Wert an. LED_PWM_MAX entspricht 100% Helligkeit.
+*/
+#define LED_PWM_MAX  255
 
 /* Angaben fuer die automatische Lichthelligkeit per LDR */
 /* ToDo: Ausfuehrliche Erklaerung */
+/* AD-Wandler:
+   Eingelesener Wert liegt im Bereich [0..1023]
+      0: Maximale Helligkeit erkannt
+   1023: Minimale Dunkelheit erkannt
+*/
 #define LDR_BRIGHTNESS_VAL_MIN  500   /* [0..1023] */
 #define LDR_MIN_PWM             80.0  /* [0..255] bzw. [0..LED_PWM_MAX] */
 
 /*
   Allgemeine Wortuhr defines
 */
-#if defined(WORTUHR_GROESSE_KLEIN)
+#if defined(WORDCLOCK_SMALL)
 	#define CNT_LINES 10
 	#define CNT_COLS  11
 #endif
-#if defined(WORTUHR_GROESSE_GROSS)
+#if defined(WORDCLOCK_BIG)
 	#define CNT_LINES 14
 	#define CNT_COLS  16
 #endif
-#define LED_PWM_MAX 255
+
+// Minimale und maximale Ausmasse der Uhr, Zeilen duerfen vom User nicht veraendert werden!
+#if CNT_LINES > CNT_COLS
+  #define CNT_CHARS_MAX  CNT_LINES
+  #define CNT_CHARS_MIN  CNT_COLS
+#else
+  #define CNT_CHARS_MAX  CNT_COLS
+  #define CNT_CHARS_MIN  CNT_LINES
+#endif
+
 
 
 #endif
